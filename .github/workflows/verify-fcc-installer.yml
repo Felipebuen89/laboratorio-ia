@@ -1,0 +1,27 @@
+name: Verificar instalador Free Claude Code
+
+on:
+  push:
+    paths:
+      - '.github/workflows/verify-fcc-installer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verificar-instalador:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Baixar e validar sem instalar
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -fsSL --retry 2 --max-time 30 \
+            'https://raw.githubusercontent.com/Alishahryar1/free-claude-code/main/scripts/install.sh' \
+            -o /tmp/fcc-install.sh
+          test -s /tmp/fcc-install.sh
+          sh -n /tmp/fcc-install.sh
+          sha256sum /tmp/fcc-install.sh
+          echo 'Sintaxe OK. O instalador NÃO foi executado.'
