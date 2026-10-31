@@ -1,0 +1,29 @@
+name: Validar instalador do laboratório
+
+on:
+  push:
+    paths:
+      - '.devcontainer/devcontainer.json'
+      - 'scripts/bootstrap-codespaces.sh'
+      - '.github/workflows/validar-bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Obter repositório
+        uses: actions/checkout@v4
+      - name: Validar sintaxe
+        run: |
+          bash -n scripts/bootstrap-codespaces.sh
+          python3 -m json.tool .devcontainer/devcontainer.json >/dev/null
+      - name: Testar instalação em ambiente isolado da automação
+        run: |
+          bash scripts/bootstrap-codespaces.sh
+          "$HOME/.local/bin/fcc-server" --version
+          "$HOME/.local/bin/claude" --version
