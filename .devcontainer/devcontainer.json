@@ -1,0 +1,12 @@
+{
+  "name": "Laboratório IA - Free Claude Code",
+  "image": "mcr.microsoft.com/devcontainers/universal:2",
+  "postCreateCommand": "bash scripts/bootstrap-codespaces.sh",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  }
+}
