@@ -56,6 +56,24 @@ jobs:
           .venv/bin/python -c "import ui; assert ui.demo is not None"
           .venv/bin/python -c "import urllib.request; assert urllib.request.urlopen('http://127.0.0.1:7860/', timeout=5).status == 200"
           echo "Codespaces startup smoke test completed: HTTP 200"
+      - name: Verify failed video links do not break preview and download outputs
+        run: |
+          .venv/bin/python - <<'PY'
+          import ui
+          def blocked(*args, **kwargs):
+              raise ValueError("A plataforma bloqueou o acesso automatizado ao vídeo.")
+          ui.generate = blocked
+          result = ui.processar("https://youtu.be/example", None, True, 2, "Dinâmico", 720, False, False)
+          assert result[:4] == (None, None, [], [])
+          assert "bloqueou" in result[4]
+          def unexpected(*args, **kwargs):
+              raise RuntimeError("sensitive server details")
+          ui.generate = unexpected
+          result = ui.processar("https://youtu.be/example", None, True, 2, "Dinâmico", 720, False, False)
+          assert result[:4] == (None, None, [], [])
+          assert "sensitive server details" not in result[4]
+          print("PASS: Erros aparecem apenas em mensagem, sem saídas quebradas.")
+          PY
       - name: Show startup logs if failed
         if: failure()
         run: tail -100 .runtime/server.log || true
