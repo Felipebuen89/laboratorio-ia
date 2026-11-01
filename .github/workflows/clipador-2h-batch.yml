@@ -1,0 +1,56 @@
+name: Clipador IA - 10 projetos sinteticos de 2 horas
+
+on:
+  push:
+    paths:
+      - "apps/clipador-ia/tests/test_ten_two_hour_podcasts.py"
+      - ".github/workflows/clipador-2h-batch.yml"
+  pull_request:
+    paths:
+      - "apps/clipador-ia/tests/test_ten_two_hour_podcasts.py"
+      - ".github/workflows/clipador-2h-batch.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: clipador-2h-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  batch-10-long-projects:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: apps/clipador-ia
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Prepare multimedia dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+          python -m pip install "pytest>=8,<10" "Pillow>=10,<13" "requests>=2.32,<3"
+      - name: Execute ten separate 2-hour synthetic podcast link projects
+        run: |
+          set -o pipefail
+          python -m pytest tests/test_ten_two_hour_podcasts.py -q -s --disable-warnings | tee /tmp/clipador-2h-results.txt
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Clipador IA — 10 podcasts sintéticos de 2h" >> "$GITHUB_STEP_SUMMARY"
+          echo "Arquivos MP4 sintéticos reais de 7200s; download por links Dropbox simulados HTTP sem rede externa." >> "$GITHUB_STEP_SUMMARY"
+          echo "**Não representa 10 links reais de YouTube nem ASR real de 2h no Render.**" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f /tmp/clipador-2h-results.txt ]; then
+            echo '~~~text' >> "$GITHUB_STEP_SUMMARY"
+            grep -E 'PASS projeto|passed|failed|ERROR' /tmp/clipador-2h-results.txt | tail -25 >> "$GITHUB_STEP_SUMMARY" || true
+            echo '~~~' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: testes-10-podcasts-2h
+          path: /tmp/clipador-2h-results.txt
+          if-no-files-found: ignore
+          retention-days: 7

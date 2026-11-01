@@ -36,7 +36,7 @@ jobs:
           bash -n scripts/setup.sh scripts/start.sh
           python -m json.tool ../../.devcontainer/clipador-ia/devcontainer.json > /dev/null
       - name: Unit tests and render smoke test
-        run: python -m pytest -q tests
+        run: python -m pytest -q tests -m "not slow"
 
   interface-smoke:
     runs-on: ubuntu-latest
