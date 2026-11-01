@@ -19,7 +19,8 @@ from urllib.parse import urlsplit
 ALLOWED_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be",
                  "vimeo.com", "www.vimeo.com", "instagram.com", "www.instagram.com",
                  "facebook.com", "www.facebook.com", "m.facebook.com",
-                 "web.facebook.com", "fb.watch", "www.fb.watch"}
+                 "web.facebook.com", "fb.watch", "www.fb.watch",
+                 "drive.google.com", "www.dropbox.com", "dropbox.com"}
 STOPWORDS = set("""a o as os um uma uns umas de do da dos das e em no na nos nas
 para por com que se como mais menos onde quando porque qual quem foi ser ter
 isso esse essa este esta já muito sobre então também eu você vocês ele ela
@@ -63,7 +64,7 @@ def validate_url(value: str) -> str:
     value = (value or "").strip()
     parsed = urlsplit(value)
     if parsed.scheme != "https" or not parsed.hostname or parsed.hostname.lower() not in ALLOWED_HOSTS:
-        raise ValueError("Use um link HTTPS público do YouTube, Instagram, Facebook ou Vimeo; ou envie um vídeo próprio.")
+        raise ValueError("Use um link HTTPS público do YouTube, Instagram, Facebook, Vimeo, Google Drive ou Dropbox; ou envie um vídeo próprio.")
     if parsed.username or parsed.password or parsed.port:
         raise ValueError("Link com credenciais ou porta personalizada não é permitido.")
     if not parsed.path or parsed.path == "/":
@@ -85,8 +86,13 @@ def probe_duration(path: Path) -> float:
          "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
         capture_output=True, text=True, check=True)
     duration = float(result.stdout.strip())
-    if not math.isfinite(duration) or duration < 3 or duration > int(os.getenv('CLIPADOR_MAX_SECONDS', '7200')):
-        raise ValueError('O vídeo excede o limite permitido neste ambiente. Para podcasts longos, use o Codespaces completo.')
+    # Limite de tempo opcional. 0 significa SEM limite de duração no aplicativo.
+    # O hardware e o tamanho máximo de arquivo ainda podem limitar a conclusão.
+    max_seconds = int(os.getenv("CLIPADOR_MAX_SECONDS", "0"))
+    if not math.isfinite(duration) or duration < 3:
+        raise ValueError("Não consegui reconhecer um vídeo válido de pelo menos 3 segundos.")
+    if max_seconds > 0 and duration > max_seconds:
+        raise ValueError("O arquivo ultrapassa o limite configurado para esta instalação.")
     return duration
 
 
@@ -95,7 +101,8 @@ def explain_import_error(message: str) -> str:
     normalized = (message or "").casefold()
     if any(token in normalized for token in
            ("not a bot", "confirm you're not", "sign in to confirm", "login required",
-            "log in to", "cookies from browser", "cookies for authentication")):
+            "log in to", "cookies from browser", "cookies for authentication",
+            "not a bot", "sign in to")):
         return ("A plataforma bloqueou o acesso automatizado a este vídeo. "
                 "Não é possível contornar essa verificação pelo aplicativo. "
                 "Envie um arquivo MP4/MOV próprio ou autorizado para continuar.")
@@ -123,15 +130,18 @@ def acquire_source(url: str, upload: str | None, work: Path) -> Path:
         return dest
     url = validate_url(url)
     import yt_dlp  # import sob demanda
+    source_height = max(240, min(1080, int(os.getenv("CLIPADOR_SOURCE_HEIGHT", "1080"))))
     opts = {
         "outtmpl": str(work / "source.%(ext)s"),
-        "format": "bv*[height<=1080]+ba/b[height<=1080]/b",
+        "format": f"bv*[height<={source_height}]+ba/b[height<={source_height}]/b",
         "merge_output_format": "mp4", "noplaylist": True,
         "quiet": True, "no_warnings": True,
         "socket_timeout": 20, "retries": 2,
         "max_filesize": int(os.getenv("CLIPADOR_MAX_BYTES", "1000000000")),
-        "match_filter": yt_dlp.utils.match_filter_func(f"duration <= {int(os.getenv('CLIPADOR_MAX_SECONDS', '7200'))}"),
     }
+    max_seconds = int(os.getenv("CLIPADOR_MAX_SECONDS", "0"))
+    if max_seconds > 0:
+        opts["match_filter"] = yt_dlp.utils.match_filter_func(f"duration <= {max_seconds}")
     try:
         with yt_dlp.YoutubeDL(opts) as client:
             client.download([url])
@@ -152,28 +162,60 @@ def speech_model():
     return WhisperModel(os.getenv("CLIPADOR_WHISPER_MODEL", "base"), device="cpu", compute_type="int8")
 
 
+def _asr_segments(path: Path, *, shift: float = 0) -> list[Segment]:
+    """Decodifica apenas um bloco por vez para limitar o uso de RAM."""
+    raw, _info = speech_model().transcribe(
+        str(path), beam_size=3, vad_filter=True, language=None,
+        word_timestamps=True)
+    results: list[Segment] = []
+    for seg in raw:
+        if not seg.text.strip() or seg.end <= seg.start:
+            continue
+        words = tuple(
+            Word(round(w.start + shift, 3), round(w.end + shift, 3), w.word.strip())
+            for w in (seg.words or []) if w.start is not None
+            and w.end is not None and w.end > w.start and w.word.strip()
+        )
+        results.append(Segment(
+            round(seg.start + shift, 3), round(seg.end + shift, 3),
+            seg.text.strip(), words))
+    return results
+
+
 def transcribe(path: Path) -> list[Segment]:
-    # Vídeos sem faixa de áudio: não baixar modelo de ASR desnecessariamente.
+    """Transcreve podcasts longos dividindo o áudio em blocos independentes.
+
+    Cada bloco é descarregado da memória antes do próximo. Isso não torna uma
+    hospedagem gratuita ilimitada: o uso de CPU e o tempo ainda são relevantes.
+    """
     probe = subprocess.run(
         ["ffprobe", "-v", "error", "-select_streams", "a:0",
          "-show_entries", "stream=index", "-of", "csv=p=0", str(path)],
         text=True, capture_output=True, check=False)
     if probe.returncode == 0 and not probe.stdout.strip():
         return []
-    raw, _info = speech_model().transcribe(
-        str(path), beam_size=3, vad_filter=True, language=None,
-        word_timestamps=True)
-    results = []
-    for seg in raw:
-        if not seg.text.strip() or seg.end <= seg.start:
-            continue
-        words = tuple(
-            Word(round(w.start, 3), round(w.end, 3), w.word.strip())
-            for w in (seg.words or []) if w.start is not None
-            and w.end is not None and w.end > w.start and w.word.strip()
-        )
-        results.append(Segment(round(seg.start, 3), round(seg.end, 3),
-                               seg.text.strip(), words))
+    duration = probe_duration(path)
+    chunk_size = min(600, max(60, int(os.getenv("CLIPADOR_AUDIO_CHUNK_SECONDS", "300"))))
+    if duration <= chunk_size:
+        return _asr_segments(path)
+    results: list[Segment] = []
+    work = Path(tempfile.mkdtemp(prefix="clipador_audio_"))
+    try:
+        for i in range(math.ceil(duration / chunk_size)):
+            offset = i * chunk_size
+            chunk = work / f"audio_{i:04}.flac"
+            safe_run([
+                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                "-ss", str(offset), "-t", str(min(chunk_size, duration - offset)),
+                "-i", str(path), "-vn", "-ac", "1", "-ar", "16000",
+                "-c:a", "flac", str(chunk)
+            ])
+            try:
+                results.extend(_asr_segments(chunk, shift=offset))
+            finally:
+                chunk.unlink(missing_ok=True)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
     return results
 
 
@@ -385,6 +427,15 @@ def generate(url: str, upload: str | None, rights: bool, count: int,
         scene_analysis = False
         local_ai = False
         resolution = 720
+    # Não acumular resultados antigos indefinidamente na instância gratuita.
+    tmp = Path(tempfile.gettempdir())
+    for old in tmp.glob("clipador_*"):
+        if old.is_dir() and (old / "resultados").is_dir():
+            try:
+                if (old.stat().st_mtime + 6 * 3600) < __import__("time").time():
+                    shutil.rmtree(old, ignore_errors=True)
+            except OSError:
+                pass
     work = Path(tempfile.mkdtemp(prefix="clipador_"))
     output = work / "resultados"
     output.mkdir()
