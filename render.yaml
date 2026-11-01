@@ -20,12 +20,16 @@ services:
       - key: CLIPADOR_WHISPER_MODEL
         value: tiny
       - key: CLIPADOR_MAX_SECONDS
-        value: "1200"
+        value: "0"
       - key: CLIPADOR_MAX_BYTES
-        value: "100000000"
+        value: "1000000000"
       - key: CLIPADOR_HOST
         value: 0.0.0.0
       - key: PORT
         value: "10000"
       - key: GRADIO_ANALYTICS_ENABLED
         value: "False"
+      - key: CLIPADOR_SOURCE_HEIGHT
+        value: "480"
+      - key: CLIPADOR_AUDIO_CHUNK_SECONDS
+        value: "300"
