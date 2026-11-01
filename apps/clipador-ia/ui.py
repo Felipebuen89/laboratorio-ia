@@ -60,8 +60,8 @@ def listar_fila():
         return "Nenhuma tarefa salva neste Codespaces."
     lines=["**Tarefas salvas neste Codespaces:**"]
     for row in data:
-        lines.append(f"- ID: \`{row['id']}\` · {row['stage']} · {round(row['progress']*100)}%")
-    return "\\n".join(lines)
+        lines.append(f"- ID: `{row['id']}` · {row['stage']} · {round(row['progress']*100)}%")
+    return "\n".join(lines)
 
 
 
