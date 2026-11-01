@@ -1,3 +1,13 @@
+# Publicação em um clique no Render (opcional)
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https%3A%2F%2Fgithub.com%2FFelipebuen89%2Flaboratorio-ia)
+
+O botão utiliza o arquivo [render.yaml](https://github.com/Felipebuen89/laboratorio-ia/blob/main/render.yaml), configura um serviço Docker no plano **free** e gera uma senha privada dentro do Render. **Não é um link para o app já publicado**: o proprietário da conta precisa revisar e aprovar a criação no painel Render.
+
+Login após publicar: usuário `felipe`. A senha é gerada pelo Render e pode ser consultada nas variáveis de ambiente do serviço no Dashboard. Não cole a senha no GitHub. A hospedagem gratuita tem limites e pode suspender serviços inativos; não é processamento ilimitado de podcasts.
+
+---
+
 # ✂️ Clipador IA v2 — Cortes inteligentes sem assinatura de API
 
 Aplicativo de edição para podcasts, entrevistas e vídeos longos **próprios ou licenciados**, acessível pelo navegador quando o Codespaces privado está ativo.
