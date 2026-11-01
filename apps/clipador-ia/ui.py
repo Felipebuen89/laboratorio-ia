@@ -12,15 +12,22 @@ MAX_FILE_MB = int(os.getenv("CLIPADOR_MAX_BYTES", "1000000000")) // 1_000_000
 
 
 def processar(link, arquivo, direitos, quantidade, estilo, qualidade, cenas, ia_local):
-    """Retorna os arquivos gerados ou uma mensagem amigável de falha."""
+    """Exibe um único aviso claro no painel, sem quebrar cada saída do Gradio."""
     try:
         archive, covers, rows, message = generate(
             link, arquivo, direitos, int(quantidade), estilo, int(qualidade),
             scene_analysis=bool(cenas), local_ai=bool(ia_local))
         first_video = Path(archive).parent / "resultados" / "corte_01.mp4"
         return archive, str(first_video) if first_video.exists() else None, covers, rows, message
-    except Exception as exc:
-        raise gr.Error(str(exc)) from exc
+    except ValueError as exc:
+        # Erros previstos: vídeo bloqueado pela plataforma, formato/tamanho ou licença.
+        return None, None, [], [], f"⚠️ **Não foi possível gerar os cortes.**\n\n{str(exc)}"
+    except Exception:
+        # Não expõe stacktrace, nomes de arquivos privados ou dados do servidor na UI.
+        return None, None, [], [], (
+            "⚠️ **Falha ao processar este vídeo.** O app não conseguiu finalizar a edição. "
+            "Tente um arquivo MP4 próprio e curto. Se persistir, precisamos consultar os logs."
+        )
 
 
 css = """
@@ -84,7 +91,7 @@ with gr.Blocks(title="Clipador IA | Estúdio de Cortes", theme=gr.themes.Soft(),
         label="Cole o link do vídeo",
         placeholder="Link público do YouTube, Instagram, Facebook ou Vimeo",
         lines=1,
-        info="Alguns links podem ser bloqueados pela plataforma; nesse caso, envie um arquivo autorizado."
+        info="Links do YouTube podem ser bloqueados pela verificação antibot. Se acontecer, use o upload de um MP4 autorizado."
     )
     arquivo = gr.File(
         label="Ou envie o arquivo do vídeo",
@@ -124,7 +131,7 @@ with gr.Blocks(title="Clipador IA | Estúdio de Cortes", theme=gr.themes.Soft(),
 
     gr.Markdown("## 3. Gere e revise os resultados")
     botao = gr.Button("✨ Produzir meus cortes", variant="primary", elem_classes=["primary-action"])
-    status = gr.Markdown()
+    status = gr.Markdown("✅ Pronto para receber o vídeo. O resultado ou um aviso aparecerá aqui.")
     preview = gr.Video(label="Assista ao primeiro corte")
     download = gr.File(label="Baixar todos os cortes e capas (ZIP)")
     with gr.Accordion("Ver detalhes e sugestões de publicação", open=False):
