@@ -1,3 +1,43 @@
+# Entrada de arquivo por link: alternativa estável ao YouTube
+
+**Por que o link YouTube falha?** O servidor do Render recebe a mensagem
+"Sign in to confirm you're not a bot", que é uma restrição do YouTube.
+Não existe uma API oficial de download do MP4 de qualquer vídeo público.
+O nosso aplicativo não usa cookies de usuário, proxies rotativos, captcha
+ou métodos de contorno. Um URL público do YouTube **não equivale** a uma
+URL de um arquivo MP4 autorizado para download.
+
+## Para usar somente um link no Clipador IA
+
+1. Utilize a mídia **original que você possui ou tem autorização de editar**.
+   Se o vídeo for seu e você só tiver uma cópia no YouTube, o YouTube Studio
+   oferece a função oficial de baixar vídeos que você publicou.
+2. Guarde a mídia num serviço que permita baixar o arquivo, como Dropbox.
+   Configure o compartilhamento para permitir download ao destinatário.
+3. Copie o link compartilhado do **arquivo MP4**, no formato
+   \`https://www.dropbox.com/scl/fi/.../podcast.mp4?rlkey=...&dl=0\`.
+4. Cole o link no Clipador IA. O importador usa \`dl=1\`, preservando a chave
+   \`rlkey\`, e recebe o arquivo por streaming com limites e checagem de domínio.
+   Não é necessário reenviar o arquivo pelo formulário a cada vez.
+
+Links protegidos por login, vídeos de outros autores sem autorização ou
+arquivos cujo dono desativou o download não são importáveis por esse método.
+Google Drive permanece como tentativa de importação sujeita a permissões e
+restrições; esta versão dedica um importador robusto especificamente ao Dropbox.
+
+**Atenção:** importação bem-sucedida não significa processamento gratuito
+ilimitado. Render Free tem memória, CPU e armazenamento efêmero; podcasts
+de 2h ainda podem exigir um worker maior ou Codespaces. Não declare o
+serviço pronto para carga de produção antes de testes com vídeo real.
+
+Referências oficiais:
+- https://support.google.com/youtube/answer/56100
+- https://developers.google.com/youtube/terms/developer-policies
+- https://help.dropbox.com/share/force-download
+- https://render.com/docs/free
+
+---
+
 ## Atualização: podcasts longos e links de arquivos
 
 - O bloqueio de **20 minutos foi removido**. No Render, `CLIPADOR_MAX_SECONDS=0`

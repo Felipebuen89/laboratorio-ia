@@ -105,7 +105,7 @@ def explain_import_error(message: str) -> str:
             "not a bot", "sign in to")):
         return ("A plataforma bloqueou o acesso automatizado a este vídeo. "
                 "Não é possível contornar essa verificação pelo aplicativo. "
-                "Envie um arquivo MP4/MOV próprio ou autorizado para continuar.")
+                "Use o link público de um MP4 autorizado no Dropbox (com download permitido), ou envie o arquivo MP4/MOV.")
     if any(token in normalized for token in
            ("private video", "private content", "members-only", "drm", "password protected")):
         return ("Este vídeo tem restrição de acesso. "
@@ -129,6 +129,12 @@ def acquire_source(url: str, upload: str | None, work: Path) -> Path:
         shutil.copy2(src, dest)
         return dest
     url = validate_url(url)
+    # Arquivos Dropbox compartilhados são um meio legítimo e verificável de
+    # entregar o vídeo ao editor. Links do YouTube seguem sujeitos a bloqueio.
+    from cloud_sources import download_dropbox, is_dropbox_link
+    if is_dropbox_link(url):
+        return download_dropbox(url, work,
+                                max_bytes=int(os.getenv("CLIPADOR_MAX_BYTES", "1000000000")))
     import yt_dlp  # import sob demanda
     source_height = max(240, min(1080, int(os.getenv("CLIPADOR_SOURCE_HEIGHT", "1080"))))
     opts = {
