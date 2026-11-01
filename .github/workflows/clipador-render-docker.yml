@@ -1,0 +1,68 @@
+name: Clipador IA - Docker Render e autenticacao
+on:
+  push:
+    paths:
+      - "apps/clipador-ia/Dockerfile.render"
+      - "apps/clipador-ia/ui.py"
+      - ".github/workflows/clipador-render-docker.yml"
+  pull_request:
+    paths:
+      - "apps/clipador-ia/Dockerfile.render"
+      - "apps/clipador-ia/ui.py"
+      - ".github/workflows/clipador-render-docker.yml"
+  workflow_dispatch:
+
+jobs:
+  docker-auth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the same Docker image Render will run
+        run: docker build -f apps/clipador-ia/Dockerfile.render -t clipador-render-smoke:latest .
+      - name: Start protected app under the free-memory limit
+        run: |
+          docker run -d --rm --name clipador-smoke \
+            --memory 512m -p 127.0.0.1:10000:10000 \
+            -e PORT=10000 \
+            -e CLIPADOR_PUBLIC_MODE=1 \
+            -e CLIPADOR_AUTH_USER=testuser \
+            -e CLIPADOR_AUTH_PASSWORD=TestOnlyNotARealSecret \
+            -e CLIPADOR_WHISPER_MODEL=tiny \
+            -e CLIPADOR_MAX_SECONDS=1200 \
+            -e CLIPADOR_MAX_BYTES=100000000 \
+            clipador-render-smoke:latest
+          for i in $(seq 1 90); do
+            if curl --silent --fail http://127.0.0.1:10000/ -o /tmp/clipador_home.html; then
+              echo "PASS: Docker Gradio respondeu HTTP 200 sob 512MB"
+              exit 0
+            fi
+            if [ "$(docker inspect -f '{{.State.Running}}' clipador-smoke 2>/dev/null || echo false)" != true ]; then
+              docker logs clipador-smoke || true
+              exit 1
+            fi
+            sleep 2
+          done
+          docker logs clipador-smoke
+          exit 1
+      - name: Require login before accessing the API
+        run: |
+          STATUS=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:10000/gradio_api/info)
+          echo "HTTP sem login: $STATUS"
+          test "$STATUS" = "401"
+          curl -fsS -X POST http://127.0.0.1:10000/login \
+            --data-urlencode "username=testuser" \
+            --data-urlencode "password=TestOnlyNotARealSecret" \
+            -c /tmp/clipador_cookies.txt -o /tmp/clipador_login.json
+          grep -q '"success":true' /tmp/clipador_login.json
+          STATUS=$(curl -sS -b /tmp/clipador_cookies.txt -o /dev/null \
+                   -w '%{http_code}' http://127.0.0.1:10000/gradio_api/info)
+          echo "HTTP autenticado: $STATUS"
+          test "$STATUS" = "200"
+          echo "PASS: API protegida e autenticação válida"
+      - name: Logs if failed
+        if: failure()
+        run: docker logs clipador-smoke || true
+      - name: Stop app
+        if: always()
+        run: docker stop clipador-smoke || true
