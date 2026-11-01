@@ -149,3 +149,11 @@ def load_json(path: Path):
         with path.open(encoding="utf-8") as stream:
             return json.load(stream)
     return None
+
+
+def recent(limit: int = 12, root: Path = ROOT) -> list[dict]:
+    limit = max(1,min(int(limit),30))
+    with _connect(root) as db:
+        rows=db.execute("SELECT id,status,stage,progress,updated_at FROM jobs ORDER BY updated_at DESC LIMIT ?",
+                        (limit,)).fetchall()
+        return [dict(row) for row in rows]
