@@ -53,6 +53,17 @@ def repetir_fila(job_id):
         return f"⚠️ {exc}"
 
 
+def listar_fila():
+    import jobs
+    data=jobs.recent()
+    if not data:
+        return "Nenhuma tarefa salva neste Codespaces."
+    lines=["**Tarefas salvas neste Codespaces:**"]
+    for row in data:
+        lines.append(f"- ID: \`{row['id']}\` · {row['stage']} · {round(row['progress']*100)}%")
+    return "\\n".join(lines)
+
+
 
 def processar(link, arquivo, direitos, quantidade, estilo, qualidade, cenas, ia_local,
               progress=gr.Progress()):
@@ -217,6 +228,8 @@ with gr.Blocks(title="Clipador IA | Estúdio de Cortes", theme=gr.themes.Soft(),
         with gr.Row():
             atualizar = gr.Button("🔄 Atualizar progresso")
             repetir = gr.Button("↻ Repetir tarefa com erro")
+            historico = gr.Button("📋 Listar tarefas")
+        lista = gr.Markdown()
         andamento = gr.Markdown()
         zip_fila = gr.File(label="Baixar pacote concluído")
         adicionar.click(enfileirar,
@@ -224,6 +237,7 @@ with gr.Blocks(title="Clipador IA | Estúdio de Cortes", theme=gr.themes.Soft(),
             outputs=[tarefa_id,aviso_fila])
         atualizar.click(consultar_fila,inputs=[tarefa_id],outputs=[andamento,zip_fila])
         repetir.click(repetir_fila,inputs=[tarefa_id],outputs=[aviso_fila])
+        historico.click(listar_fila,outputs=[lista])
 
     gr.Markdown(
         "ℹ️ **Antes de publicar:** confira as legendas, a edição e os direitos do material. "
