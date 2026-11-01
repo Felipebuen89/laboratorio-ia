@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from engine import Candidate, Segment, make_cover, probe_duration, render_clip, write_captions
+from engine import Candidate, Segment, Word, make_cover, probe_duration, render_clip, write_captions
+from advanced import write_dynamic_ass
 
 
 @pytest.mark.skipif(not shutil.which("ffmpeg") or not shutil.which("ffprobe"),
@@ -24,7 +25,16 @@ def test_render_mp4_capa_legenda(tmp_path: Path):
     captions = tmp_path / "corte_01.srt"
     video = tmp_path / "corte_01.mp4"
     cover = tmp_path / "corte_01_capa.jpg"
-    write_captions([Segment(0, 3, c.text)], c, captions)
+    pieces = (
+        Word(0.0, 0.6, "Atenção,"), Word(0.6, 1.0, "esta"),
+        Word(1.0, 1.5, "é"), Word(1.5, 2.0, "uma"),
+        Word(2.0, 2.5, "legenda"), Word(2.5, 3.0, "de teste!"),
+    )
+    segments = [Segment(0, 3, c.text, pieces)]
+    write_captions(segments, c, captions)
+    ass = captions.with_suffix(".ass")
+    assert write_dynamic_ass(segments, c, ass, "Dinâmico") == 6
+    assert "Dialogue: 0" in ass.read_text(encoding="utf-8")
     assert "-->" in captions.read_text(encoding="utf-8")
     render_clip(source, c, captions, video, "Dinâmico", 720)
     make_cover(source, c, "Como fazer um corte melhor", cover)
