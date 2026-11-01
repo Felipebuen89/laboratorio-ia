@@ -8,6 +8,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg fonts-de
 WORKDIR /app
 COPY apps/clipador-ia/requirements.txt .
 RUN python -m pip install --no-cache-dir -r requirements.txt
-COPY apps/clipador-ia/advanced.py apps/clipador-ia/engine.py apps/clipador-ia/ui.py ./
+COPY apps/clipador-ia/advanced.py apps/clipador-ia/engine.py apps/clipador-ia/ui.py apps/clipador-ia/cloud_sources.py ./
 EXPOSE 10000
 CMD ["python", "ui.py"]
