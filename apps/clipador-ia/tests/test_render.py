@@ -100,3 +100,41 @@ def test_generate_complete_zip_from_authorized_upload(tmp_path: Path, monkeypatc
         metadata = json.loads(z.read("corte_01_seo.json"))
         assert metadata["revisao_humana_necessaria"]
         assert metadata["fonte"] == "Arquivo enviado pelo usuário"
+
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg") or not shutil.which("ffprobe"),
+                    reason="FFmpeg não disponível")
+def test_generate_zip_from_dropbox_file_link(tmp_path: Path, monkeypatch):
+    """Integra fonte Dropbox simulada, editor de vídeo, legendas, capa e ZIP."""
+    import engine
+    import cloud_sources
+    import zipfile
+
+    original = tmp_path / "podcast_original.mp4"
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error",
+         "-f", "lavfi", "-i", "color=c=green:s=640x360:r=24:d=4",
+         "-f", "lavfi", "-i", "sine=frequency=650:duration=4",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p",
+         "-c:a", "aac", "-shortest", str(original)],
+        check=True, timeout=35)
+
+    def fake_public_file(_url, work, max_bytes):
+        assert max_bytes > original.stat().st_size
+        local = work / "source.mp4"
+        shutil.copyfile(original, local)
+        return local
+
+    monkeypatch.setattr(cloud_sources, "download_dropbox", fake_public_file)
+    monkeypatch.setattr(engine, "transcribe",
+                        lambda _source: [Segment(0, 3.4, "Uma dica interessante!", ())])
+    url = "https://www.dropbox.com/scl/fi/a1b2/podcast.mp4?dl=0"
+    archive, covers, rows, message = engine.generate(
+        url, None, True, 1, "Dinâmico", 720,
+        scene_analysis=False, local_ai=False)
+    assert len(rows) == 1 and Path(archive).exists()
+    with zipfile.ZipFile(archive) as z:
+        assert "corte_01.mp4" in z.namelist()
+        assert "corte_01_capa.jpg" in z.namelist()
+        assert "corte_01_seo.json" in z.namelist()
