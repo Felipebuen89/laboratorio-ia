@@ -79,3 +79,17 @@ def test_no_invented_seo():
     m = package_metadata("", 2)
     assert m["titulo"] == "Corte 2"
     assert "não garantia" in m["aviso"]
+
+
+@pytest.mark.parametrize("raw,fragment", [
+    ("Sign in to confirm you’re not a bot. Use --cookies", "bloqueou o acesso automatizado"),
+    ("ERROR: [youtube] Sign in to confirm you're not a bot", "bloqueou o acesso automatizado"),
+    ("Private video", "restrição de acesso"),
+    ("video is unavailable", "Não foi possível importar"),
+    ("Requested format is not available", "limites gratuitos"),
+])
+def test_friendly_import_error(raw, fragment):
+    from engine import explain_import_error
+    message = explain_import_error(raw)
+    assert fragment in message
+    assert "cookies" not in message.lower()

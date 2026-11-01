@@ -90,6 +90,27 @@ def probe_duration(path: Path) -> float:
     return duration
 
 
+def explain_import_error(message: str) -> str:
+    """Converte erros do extrator em instruções compreensíveis, sem expor IDs ou cookies."""
+    normalized = (message or "").casefold()
+    if any(token in normalized for token in
+           ("not a bot", "confirm you're not", "sign in to confirm", "login required",
+            "log in to", "cookies from browser", "cookies for authentication")):
+        return ("A plataforma bloqueou o acesso automatizado a este vídeo. "
+                "Não é possível contornar essa verificação pelo aplicativo. "
+                "Envie um arquivo MP4/MOV próprio ou autorizado para continuar.")
+    if any(token in normalized for token in
+           ("private video", "private content", "members-only", "drm", "password protected")):
+        return ("Este vídeo tem restrição de acesso. "
+                "Envie um arquivo que você tem direito de editar e publicar.")
+    if any(token in normalized for token in
+           ("max-filesize", "maximum file size", "too large", "requested format is not available")):
+        return ("Não consegui importar a versão desse vídeo dentro dos limites gratuitos. "
+                "Tente enviar um arquivo MP4 menor.")
+    return ("Não foi possível importar o link pela plataforma. "
+            "Verifique se é público e, se tiver autorização, envie o arquivo do vídeo.")
+
+
 def acquire_source(url: str, upload: str | None, work: Path) -> Path:
     if upload:
         src = Path(upload)
@@ -111,8 +132,11 @@ def acquire_source(url: str, upload: str | None, work: Path) -> Path:
         "max_filesize": int(os.getenv("CLIPADOR_MAX_BYTES", "1000000000")),
         "match_filter": yt_dlp.utils.match_filter_func(f"duration <= {int(os.getenv('CLIPADOR_MAX_SECONDS', '7200'))}"),
     }
-    with yt_dlp.YoutubeDL(opts) as client:
-        client.download([url])
+    try:
+        with yt_dlp.YoutubeDL(opts) as client:
+            client.download([url])
+    except yt_dlp.utils.DownloadError as exc:
+        raise ValueError(explain_import_error(str(exc))) from None
     matches = [p for p in work.glob("source.*") if p.suffix.lower() in
                (".mp4", ".webm", ".mkv", ".mov")]
     if not matches:
