@@ -452,10 +452,10 @@ def generate(url: str, upload: str | None, rights: bool, count: int,
     scene_times, scene_status = detect_scene_times(source, duration, scene_analysis)
     if progress:
         progress(0.12, desc="Preparando a transcrição...")
-    segments = transcribe(
-        source,
-        on_progress=(lambda ratio, msg: progress(0.12 + 0.67 * ratio, desc=msg))
-        if progress else None
+    segments = (
+        transcribe(source, on_progress=lambda ratio, msg: progress(
+            0.12 + 0.67 * ratio, desc=msg))
+        if progress else transcribe(source)
     )
     if segments:
         # Com modelo local disponível, oferecemos até 6 candidatos para comparação.
