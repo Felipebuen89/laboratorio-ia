@@ -1,0 +1,13 @@
+FROM python:3.11-slim-bookworm
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    GRADIO_ANALYTICS_ENABLED=False \
+    HF_HUB_DISABLE_TELEMETRY=1 \
+    CLIPADOR_HOST=0.0.0.0
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY apps/clipador-ia/requirements.txt .
+RUN python -m pip install --no-cache-dir -r requirements.txt
+COPY apps/clipador-ia/advanced.py apps/clipador-ia/engine.py apps/clipador-ia/ui.py ./
+EXPOSE 10000
+CMD ["python", "ui.py"]

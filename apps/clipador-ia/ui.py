@@ -4,6 +4,9 @@ from pathlib import Path
 import gradio as gr
 from engine import generate
 
+PUBLIC_MODE = os.getenv("CLIPADOR_PUBLIC_MODE") == "1"
+MAX_FILE_MB = int(os.getenv("CLIPADOR_MAX_BYTES", "1000000000")) // 1000000
+
 
 def processar(link, arquivo, direitos, quantidade, estilo, qualidade, cenas, ia_local):
     try:
@@ -27,6 +30,13 @@ with gr.Blocks(title="Clipador IA | Estúdio de Shorts", theme=gr.themes.Soft(),
         "**Fontes:** link público do YouTube, Instagram, Facebook ou Vimeo (se acessível pelo extrator) "
         "e upload de arquivos próprios. **Sem assinatura de API ou marca d'água nossa.**"
     )
+    if PUBLIC_MODE:
+        gr.Markdown(
+            "🧪 **Beta gratuito online**: envie arquivo até "
+            + str(MAX_FILE_MB) + " MB ou vídeo de até 20 minutos. "
+            "Para podcasts mais longos, a versão completa roda no Codespaces. "
+            "Esta hospedagem tem recursos limitados e pode reiniciar automaticamente."
+        )
     with gr.Row():
         with gr.Column():
             link = gr.Textbox(label="Link do vídeo", lines=1,
@@ -36,15 +46,15 @@ with gr.Blocks(title="Clipador IA | Estúdio de Shorts", theme=gr.themes.Soft(),
             direitos = gr.Checkbox(
                 label="Confirmo que possuo os direitos ou autorização para editar e publicar este vídeo")
         with gr.Column():
-            quantidade = gr.Slider(label="Número de cortes", minimum=1, maximum=6, value=3, step=1)
+            quantidade = gr.Slider(label="Número de cortes", minimum=1, maximum=2 if PUBLIC_MODE else 6, value=2 if PUBLIC_MODE else 3, step=1)
             estilo = gr.Radio(["Dinâmico", "Humor leve", "Sóbrio"], value="Dinâmico",
                               label="Visual das legendas e cores",
                               info="Humor leve é um preset visual; não cria piadas artificiais.")
             qualidade = gr.Radio([720, 1080], value=720, label="Resolução",
                                  info="720p é mais leve em máquinas gratuitas.")
-            cenas = gr.Checkbox(value=True, label="Analisar mudanças de cenas (mais lento)",
+            cenas = gr.Checkbox(value=not PUBLIC_MODE, interactive=not PUBLIC_MODE, label="Analisar mudanças de cenas (mais lento)",
                                 info="Melhora a priorização visual; não compreende sozinho o significado das imagens.")
-            ia_local = gr.Checkbox(value=False, label="Reordenar trechos com IA local (Ollama)",
+            ia_local = gr.Checkbox(value=False, interactive=not PUBLIC_MODE, label="Reordenar trechos com IA local (Ollama)",
                                    info="Só funciona se o Ollama e um modelo local já estiverem instalados.")
     botao = gr.Button("✨ Produzir cortes", variant="primary")
     status = gr.Markdown()
@@ -66,6 +76,14 @@ with gr.Blocks(title="Clipador IA | Estúdio de Shorts", theme=gr.themes.Soft(),
     )
 
 if __name__ == "__main__":
-    demo.queue(default_concurrency_limit=1).launch(
+    user = os.getenv("CLIPADOR_AUTH_USER")
+    password = os.getenv("CLIPADOR_AUTH_PASSWORD")
+    if PUBLIC_MODE and (not user or not password):
+        raise RuntimeError("Proteção de acesso obrigatória para hospedagem pública.")
+    auth = (user, password) if user and password else None
+    demo.queue(default_concurrency_limit=1, max_size=2).launch(
         server_name=os.environ.get("CLIPADOR_HOST", "127.0.0.1"),
-        server_port=7860, share=False, max_file_size="1gb")
+        server_port=int(os.getenv("PORT", "7860")),
+        auth=auth,
+        share=False,
+        max_file_size=f"{MAX_FILE_MB}mb")

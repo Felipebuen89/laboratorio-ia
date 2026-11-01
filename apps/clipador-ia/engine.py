@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import math
 import re
 import shutil
@@ -84,8 +85,8 @@ def probe_duration(path: Path) -> float:
          "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
         capture_output=True, text=True, check=True)
     duration = float(result.stdout.strip())
-    if not math.isfinite(duration) or duration < 3 or duration > 7200:
-        raise ValueError("Use vídeos com duração entre 3 segundos e 2 horas.")
+    if not math.isfinite(duration) or duration < 3 or duration > int(os.getenv('CLIPADOR_MAX_SECONDS', '7200')):
+        raise ValueError('O vídeo excede o limite permitido neste ambiente. Para podcasts longos, use o Codespaces completo.')
     return duration
 
 
@@ -94,8 +95,8 @@ def acquire_source(url: str, upload: str | None, work: Path) -> Path:
         src = Path(upload)
         if not src.is_file() or src.suffix.lower() not in (".mp4", ".mov", ".mkv", ".webm"):
             raise ValueError("Envie MP4, MOV, MKV ou WEBM válido.")
-        if src.stat().st_size > 1_000_000_000:
-            raise ValueError("Arquivo acima do limite de 1 GB.")
+        if src.stat().st_size > int(os.getenv('CLIPADOR_MAX_BYTES', '1000000000')):
+            raise ValueError('Arquivo acima do limite permitido nesta hospedagem.')
         dest = work / ("source" + src.suffix.lower())
         shutil.copy2(src, dest)
         return dest
@@ -107,8 +108,8 @@ def acquire_source(url: str, upload: str | None, work: Path) -> Path:
         "merge_output_format": "mp4", "noplaylist": True,
         "quiet": True, "no_warnings": True,
         "socket_timeout": 20, "retries": 2,
-        "max_filesize": 1_000_000_000,
-        "match_filter": yt_dlp.utils.match_filter_func("duration <= 7200"),
+        "max_filesize": int(os.getenv("CLIPADOR_MAX_BYTES", "1000000000")),
+        "match_filter": yt_dlp.utils.match_filter_func(f"duration <= {int(os.getenv('CLIPADOR_MAX_SECONDS', '7200'))}"),
     }
     with yt_dlp.YoutubeDL(opts) as client:
         client.download([url])
@@ -116,13 +117,15 @@ def acquire_source(url: str, upload: str | None, work: Path) -> Path:
                (".mp4", ".webm", ".mkv", ".mov")]
     if not matches:
         raise ValueError("Não consegui importar este link. Experimente enviar um arquivo autorizado.")
+    if matches[0].stat().st_size > int(os.getenv("CLIPADOR_MAX_BYTES", "1000000000")):
+        raise ValueError("Vídeo acima do limite de tamanho desta hospedagem.")
     return matches[0]
 
 
 @lru_cache(maxsize=1)
 def speech_model():
     from faster_whisper import WhisperModel
-    return WhisperModel("base", device="cpu", compute_type="int8")
+    return WhisperModel(os.getenv("CLIPADOR_WHISPER_MODEL", "base"), device="cpu", compute_type="int8")
 
 
 def transcribe(path: Path) -> list[Segment]:
@@ -353,6 +356,11 @@ def generate(url: str, upload: str | None, rights: bool, count: int,
         raise ValueError("Cole um link ou envie um vídeo.")
     if style not in ("Dinâmico", "Humor leve", "Sóbrio"):
         raise ValueError("Estilo inválido.")
+    if os.getenv("CLIPADOR_PUBLIC_MODE") == "1":
+        count = min(int(count), 2)
+        scene_analysis = False
+        local_ai = False
+        resolution = 720
     work = Path(tempfile.mkdtemp(prefix="clipador_"))
     output = work / "resultados"
     output.mkdir()
