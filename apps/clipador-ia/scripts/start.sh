@@ -4,6 +4,23 @@ cd "$(dirname "$0")/.."
 mkdir -p .runtime
 
 # Keep the Codespaces port private. This process only starts a local service.
+
+start_worker() {
+  if [[ -f .runtime/worker.pid ]] && kill -0 "$(cat .runtime/worker.pid)" 2>/dev/null; then
+    echo "Worker V3 já está executando."
+    return
+  fi
+  CLIPADOR_ENABLE_LOCAL_QUEUE=1 nohup .venv/bin/python worker.py > .runtime/worker.log 2>&1 < /dev/null &
+  echo "$!" > .runtime/worker.pid
+  sleep 1
+  if ! kill -0 "$(cat .runtime/worker.pid)" 2>/dev/null; then
+    echo "Erro: worker V3 não iniciou."
+    tail -30 .runtime/worker.log || true
+    return 1
+  fi
+  echo "Worker V3 iniciado, com fila persistente em .runtime/v3."
+}
+
 check_health() {
   .venv/bin/python - <<'PY'
 import sys
@@ -20,18 +37,20 @@ PY
 if [[ -f .runtime/server.pid ]] && kill -0 "$(cat .runtime/server.pid)" 2>/dev/null; then
   if check_health; then
     echo "Clipador IA já está funcionando na porta 7860."
+    start_worker
     exit 0
   fi
   echo "Processo antigo encontrado, mas sem resposta HTTP; tentando recuperar."
   kill "$(cat .runtime/server.pid)" 2>/dev/null || true
 fi
 
-CLIPADOR_HOST=0.0.0.0 nohup .venv/bin/python ui.py > .runtime/server.log 2>&1 < /dev/null &
+CLIPADOR_ENABLE_LOCAL_QUEUE=1 CLIPADOR_HOST=0.0.0.0 nohup .venv/bin/python ui.py > .runtime/server.log 2>&1 < /dev/null &
 pid=$!
 echo "$pid" > .runtime/server.pid
 for attempt in $(seq 1 90); do
   if check_health; then
     echo "Clipador IA confirmado: http://127.0.0.1:7860/ (abrir porta PRIVADA no Codespaces)."
+    start_worker
     exit 0
   fi
   if ! kill -0 "$pid" 2>/dev/null; then

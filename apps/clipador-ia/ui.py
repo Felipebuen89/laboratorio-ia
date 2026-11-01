@@ -9,6 +9,60 @@ from engine import generate
 
 PUBLIC_MODE = os.getenv("CLIPADOR_PUBLIC_MODE") == "1"
 MAX_FILE_MB = int(os.getenv("CLIPADOR_MAX_BYTES", "1000000000")) // 1_000_000
+LOCAL_QUEUE = not PUBLIC_MODE and os.getenv("CLIPADOR_ENABLE_LOCAL_QUEUE") == "1"
+
+
+def enfileirar(link, arquivo, direitos, quantidade, estilo, qualidade):
+    import jobs
+    try:
+        job_id=jobs.submit(link, arquivo, direitos, int(quantidade), estilo,
+                           int(qualidade))
+        return job_id, f"✅ **Tarefa salva:** {job_id}. O worker processará em blocos, mesmo se você fechar a página."
+    except ValueError as exc:
+        return "", f"⚠️ {exc}"
+
+
+def consultar_fila(job_id):
+    import jobs
+    if not job_id:
+        return "Cole ou envie um vídeo e clique em **Adicionar à fila**.", None
+    try:
+        state=jobs.get(job_id)
+    except ValueError as exc:
+        return f"⚠️ {exc}", None
+    progress=round(state["progress"]*100)
+    stages={"queued":"Na fila","importing":"Importando mídia",
+            "transcribing":"Transcrevendo por blocos",
+            "selecting":"Escolhendo cortes",
+            "rendering":"Renderizando cortes",
+            "packaging":"Preparando pacote",
+            "done":"Concluído", "failed":"Falha recuperável"}
+    step=stages.get(state["stage"],state["stage"])
+    description=(f"**{step}** · {progress}% · tentativa {state['attempts']}." +
+                 (f" Motivo: {state['error']}" if state["error"] else ""))
+    archive=jobs.folder(job_id)/"cortes_prontos.zip"
+    return description, str(archive) if state["status"]=="done" and archive.is_file() else None
+
+
+def repetir_fila(job_id):
+    import jobs
+    try:
+        jobs.retry(job_id)
+        return "✅ Tarefa recolocada na fila. Os checkpoints já salvos serão aproveitados."
+    except ValueError as exc:
+        return f"⚠️ {exc}"
+
+
+def listar_fila():
+    import jobs
+    data=jobs.recent()
+    if not data:
+        return "Nenhuma tarefa salva neste Codespaces."
+    lines=["**Tarefas salvas neste Codespaces:**"]
+    for row in data:
+        lines.append(f"- ID: `{row['id']}` · {row['stage']} · {round(row['progress']*100)}%")
+    return "\n".join(lines)
+
 
 
 def processar(link, arquivo, direitos, quantidade, estilo, qualidade, cenas, ia_local,
@@ -160,6 +214,31 @@ with gr.Blocks(title="Clipador IA | Estúdio de Cortes", theme=gr.themes.Soft(),
         outputs=[download, preview, galeria, tabela, status],
         show_progress="full"
     )
+    if LOCAL_QUEUE:
+        gr.Markdown("## 4. Fila V3 — processamento retomável (Codespaces)")
+        gr.Markdown(
+            "Use esta opção para **podcasts longos**. A fila salva o vídeo, a transcrição "
+            "por blocos e os cortes em andamento. O worker pode retomar tarefas após "
+            "reiniciar, desde que os arquivos do Codespaces ainda existam."
+        )
+        adicionar = gr.Button("📥 Adicionar vídeo à fila", variant="secondary")
+        tarefa_id = gr.Textbox(label="Identificador da tarefa", interactive=True,
+                              placeholder="O identificador aparecerá aqui")
+        aviso_fila = gr.Markdown()
+        with gr.Row():
+            atualizar = gr.Button("🔄 Atualizar progresso")
+            repetir = gr.Button("↻ Repetir tarefa com erro")
+            historico = gr.Button("📋 Listar tarefas")
+        lista = gr.Markdown()
+        andamento = gr.Markdown()
+        zip_fila = gr.File(label="Baixar pacote concluído")
+        adicionar.click(enfileirar,
+            inputs=[link,arquivo,direitos,quantidade,estilo,qualidade],
+            outputs=[tarefa_id,aviso_fila])
+        atualizar.click(consultar_fila,inputs=[tarefa_id],outputs=[andamento,zip_fila])
+        repetir.click(repetir_fila,inputs=[tarefa_id],outputs=[aviso_fila])
+        historico.click(listar_fila,outputs=[lista])
+
     gr.Markdown(
         "ℹ️ **Antes de publicar:** confira as legendas, a edição e os direitos do material. "
         "Vídeos curtos e efeitos não garantem viralização, originalidade nem monetização. "
