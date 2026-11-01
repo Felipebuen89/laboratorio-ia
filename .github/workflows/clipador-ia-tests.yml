@@ -11,6 +11,10 @@ on:
       - ".github/workflows/clipador-ia-tests.yml"
   workflow_dispatch:
 
+concurrency:
+  group: clipador-ia-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   video-smoke:
     runs-on: ubuntu-latest
