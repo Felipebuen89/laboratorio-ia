@@ -106,7 +106,8 @@ def download_dropbox(url: str, work: Path, max_bytes: int,
                 return dest
         raise ValueError("O Dropbox retornou redirecionamentos demais.")
     except (requests.RequestException, OSError) as exc:
+        dest.unlink(missing_ok=True)
         raise ValueError("Falha de rede durante a importação do Dropbox. Verifique o link público.") from None
-    finally:
-        if not dest.is_file() or dest.stat().st_size < 1024:
-            dest.unlink(missing_ok=True)
+    except ValueError:
+        dest.unlink(missing_ok=True)
+        raise
