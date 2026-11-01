@@ -61,3 +61,42 @@ def test_video_without_audio_uses_visual_mode(tmp_path: Path, monkeypatch):
     output = tmp_path / "sem_audio.mp4"
     render_clip(source, Candidate(0, 2.8, "", 1), empty_srt, output)
     assert output.stat().st_size > 1000
+
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg") or not shutil.which("ffprobe"),
+                    reason="FFmpeg não disponível")
+def test_generate_complete_zip_from_authorized_upload(tmp_path: Path, monkeypatch):
+    """Fluxo completo sem depender do download de um modelo ou vídeo de terceiros."""
+    import engine
+    import json
+    import zipfile
+
+    source = tmp_path / "own_video.mp4"
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error",
+         "-f", "lavfi", "-i", "color=c=darkblue:s=640x360:r=24:d=4",
+         "-f", "lavfi", "-i", "sine=frequency=550:duration=4",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p",
+         "-c:a", "aac", "-shortest", str(source)],
+        check=True, timeout=35)
+    words = (
+        Word(0, .7, "Você"), Word(.7, 1.4, "conhece"),
+        Word(1.4, 2.1, "este"), Word(2.1, 3.4, "segredo?"))
+    monkeypatch.setattr(engine, "transcribe",
+                        lambda _source: [Segment(0, 3.4, "Você conhece este segredo?", words)])
+    archive, gallery, rows, status = engine.generate(
+        "", str(source), True, 1, "Dinâmico", 720,
+        scene_analysis=False, local_ai=False)
+    assert Path(archive).is_file()
+    assert gallery and Path(gallery[0]).is_file()
+    assert len(rows) == 1 and "1 corte" in status
+    with zipfile.ZipFile(archive) as z:
+        names = z.namelist()
+        assert "corte_01.mp4" in names
+        assert "corte_01.srt" in names
+        assert "corte_01.ass" in names
+        assert "corte_01_capa.jpg" in names
+        metadata = json.loads(z.read("corte_01_seo.json"))
+        assert metadata["revisao_humana_necessaria"]
+        assert metadata["fonte"] == "Arquivo enviado pelo usuário"
