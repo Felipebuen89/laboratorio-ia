@@ -45,10 +45,21 @@ jobs:
           done
           docker logs clipador-smoke
           exit 1
-      - name: Ensure authentication page is reachable
+      - name: Require login before accessing the API
         run: |
-          curl -fsS http://127.0.0.1:10000/login -o /tmp/clipador_login.html
-          echo "PASS: rota de login respondeu"
+          STATUS=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:10000/gradio_api/info)
+          echo "HTTP sem login: $STATUS"
+          test "$STATUS" = "401"
+          curl -fsS -X POST http://127.0.0.1:10000/login \
+            --data-urlencode "username=testuser" \
+            --data-urlencode "password=TestOnlyNotARealSecret" \
+            -c /tmp/clipador_cookies.txt -o /tmp/clipador_login.json
+          grep -q '"success":true' /tmp/clipador_login.json
+          STATUS=$(curl -sS -b /tmp/clipador_cookies.txt -o /dev/null \
+                   -w '%{http_code}' http://127.0.0.1:10000/gradio_api/info)
+          echo "HTTP autenticado: $STATUS"
+          test "$STATUS" = "200"
+          echo "PASS: API protegida e autenticação válida"
       - name: Logs if failed
         if: failure()
         run: docker logs clipador-smoke || true
