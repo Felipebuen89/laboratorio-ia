@@ -93,3 +93,53 @@ def test_friendly_import_error(raw, fragment):
     message = explain_import_error(raw)
     assert fragment in message
     assert "cookies" not in message.lower()
+
+
+def test_long_podcast_duration_no_app_cut(monkeypatch, tmp_path):
+    """Vídeos acima de 2 horas são aceitos quando max_seconds=0."""
+    import engine
+    from types import SimpleNamespace
+    source = tmp_path / "long_video.mp4"
+    source.write_bytes(b"dummy")
+    monkeypatch.setenv("CLIPADOR_MAX_SECONDS", "0")
+    monkeypatch.setattr(engine.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout="9360.0", returncode=0))
+    assert engine.probe_duration(source) == 9360.0
+    monkeypatch.setenv("CLIPADOR_MAX_SECONDS", "3600")
+    with pytest.raises(ValueError):
+        engine.probe_duration(source)
+
+
+def test_long_podcast_asr_is_chunked_and_shifted(monkeypatch, tmp_path):
+    import engine
+    from types import SimpleNamespace
+    source = tmp_path / "podcast.mp4"
+    source.write_bytes(b"dummy")
+    monkeypatch.setenv("CLIPADOR_MAX_SECONDS", "0")
+    monkeypatch.setenv("CLIPADOR_AUDIO_CHUNK_SECONDS", "300")
+    monkeypatch.setattr(engine, "probe_duration", lambda _: 7800.0)
+    monkeypatch.setattr(engine.subprocess, "run", lambda *a, **kw: SimpleNamespace(stdout="0", returncode=0))
+    def fake_ffmpeg(args, **kw):
+        Path(args[-1]).write_bytes(b"synthetic block")
+    monkeypatch.setattr(engine, "safe_run", fake_ffmpeg)
+    seen = []
+    def fake_asr(path, shift=0):
+        seen.append((str(path), shift))
+        return [engine.Segment(shift + 1, shift + 5, "Um trecho importante.")]
+    monkeypatch.setattr(engine, "_asr_segments", fake_asr)
+    updates = []
+    output = engine.transcribe(source, on_progress=lambda value, msg: updates.append((value, msg)))
+    assert len(output) == 26
+    assert output[0].start == 1
+    assert output[-1].start == 7501
+    assert output[-1].end == 7505
+    assert seen[-1][1] == 7500
+    assert updates[-1][0] == pytest.approx(1.0)
+    assert not list(tmp_path.glob("audio_*.flac"))
+
+
+@pytest.mark.parametrize("url", [
+    "https://drive.google.com/file/d/ABCDEF/view",
+    "https://www.dropbox.com/scl/fi/abcdef/podcast.mp4?dl=0",
+])
+def test_authorized_public_file_links(url):
+    assert validate_url(url) == url
