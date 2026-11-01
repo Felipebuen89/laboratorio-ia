@@ -126,6 +126,13 @@ def speech_model():
 
 
 def transcribe(path: Path) -> list[Segment]:
+    # Vídeos sem faixa de áudio: não baixar modelo de ASR desnecessariamente.
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "a:0",
+         "-show_entries", "stream=index", "-of", "csv=p=0", str(path)],
+        text=True, capture_output=True, check=False)
+    if probe.returncode == 0 and not probe.stdout.strip():
+        return []
     raw, _info = speech_model().transcribe(
         str(path), beam_size=3, vad_filter=True, language=None,
         word_timestamps=True)
@@ -271,18 +278,24 @@ def render_clip(source: Path, c: Candidate, srt: Path, dest: Path,
     saturation = "1.16" if style == "Humor leve" else ("1.10" if style == "Dinâmico" else "1.02")
     # Fundo desfocado + imagem integral: evita cortar rostos e gameplay sem rastreador.
     ass_path = srt.with_suffix(".ass")
-    subtitle_filter = (f"ass={ass_path.name}" if ass_path.exists()
-                       else f"subtitles={srt.name}:force_style='Fontname=DejaVu Sans,"
-                            f"Fontsize={24 if resolution == 720 else 32},Bold=1,"
-                            f"PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
-                            f"Outline=3,Shadow=1,Alignment=2,MarginV={115 if resolution == 720 else 172}'")
+    if ass_path.exists() and ass_path.stat().st_size:
+        subtitle_filter = f"ass={ass_path.name},"
+    elif srt.exists() and srt.stat().st_size:
+        subtitle_filter = (
+            f"subtitles={srt.name}:force_style='Fontname=DejaVu Sans,"
+            f"Fontsize={24 if resolution == 720 else 32},Bold=1,"
+            f"PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
+            f"Outline=3,Shadow=1,Alignment=2,MarginV={115 if resolution == 720 else 172}',"
+        )
+    else:
+        subtitle_filter = ""
     vf = (
         f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,"
         f"crop={w}:{h},boxblur=20:6[bg];"
         f"[0:v]scale={w}:{h}:force_original_aspect_ratio=decrease,"
         f"eq=contrast=1.04:saturation={saturation}[fg];"
         f"[bg][fg]overlay=(W-w)/2:(H-h)/2:shortest=1,"
-        + subtitle_filter + ",fade=t=in:st=0:d=0.15[v]"
+        + subtitle_filter + "fade=t=in:st=0:d=0.15[v]"
     )
     safe_run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
               "-ss", str(c.start), "-t", str(round(c.end - c.start, 2)),
@@ -348,10 +361,13 @@ def generate(url: str, upload: str | None, rights: bool, count: int,
     scene_times, scene_status = detect_scene_times(source, duration, scene_analysis)
     segments = transcribe(source)
     if segments:
+        # Com modelo local disponível, oferecemos até 6 candidatos para comparação.
+        pool_size = 6 if local_ai else int(count)
         picked = select_clips(
-            segments, count=int(count), scene_times=tuple(scene_times),
+            segments, count=pool_size, scene_times=tuple(scene_times),
             min_seconds=min(20, max(3, duration / 3)), max_seconds=min(55, duration))
         picked, selection_status = rerank_with_ollama(picked, enabled=local_ai)
+        picked = picked[:max(1, min(6, int(count)))]
     else:
         if not scene_analysis:
             raise ValueError("Não identifiquei fala. Ative a análise visual para receber cortes experimentais.")
