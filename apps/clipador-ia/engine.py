@@ -105,7 +105,7 @@ def explain_import_error(message: str) -> str:
             "not a bot", "sign in to")):
         return ("A plataforma bloqueou o acesso automatizado a este vídeo. "
                 "Não é possível contornar essa verificação pelo aplicativo. "
-                "Envie um arquivo MP4/MOV próprio ou autorizado para continuar.")
+                "Use o link público de um MP4 autorizado no Dropbox (com download permitido), ou envie o arquivo MP4/MOV.")
     if any(token in normalized for token in
            ("private video", "private content", "members-only", "drm", "password protected")):
         return ("Este vídeo tem restrição de acesso. "
