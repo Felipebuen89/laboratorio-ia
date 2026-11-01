@@ -58,3 +58,17 @@ O CI roda apenas testes de lógica (sem grandes downloads de modelos ou processa
 - [Capas do Shorts no YouTube Studio](https://support.google.com/youtube/answer/72431)
 
 Implementação própria inspirada em arquiteturas publicadas, sem copiar arquivos de concorrentes proprietários.
+
+
+## Abrir pelo celular sem digitar comandos (Codespaces novo)
+
+Use o GitHub autenticado e escolha **New codespace with options** no repositório, branch
+feature/clipador-ia-mvp, configuração **Clipador IA - Gradio**.
+A configuração separada fica em .devcontainer/clipador-ia/devcontainer.json.
+Ela instala Python, FFmpeg, fontes e dependências ao criar o ambiente; o app inicia
+automaticamente ao abrir o Codespaces. Na aba **Ports**, abra a porta privada 7860.
+Não mude a visibilidade para Public. Não é hospedagem 24/7: o Codespaces dorme,
+precisa ser reaberto e consome cota de CPU/armazenamento.
+
+**Atenção:** a configuração padrão do laboratório segue sendo outra; o Codespaces antigo
+não muda sozinho, e esta nova configuração ainda precisa ser testada no Codespaces real.
