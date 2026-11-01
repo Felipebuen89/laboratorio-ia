@@ -1,0 +1,347 @@
+"""Clipador IA: pipeline local, sem APIs pagas ou bypass de conteúdo protegido."""
+from __future__ import annotations
+
+import json
+import math
+import re
+import shutil
+import subprocess
+import tempfile
+import unicodedata
+import zipfile
+from collections import Counter
+from dataclasses import asdict, dataclass
+from functools import lru_cache
+from pathlib import Path
+from urllib.parse import urlsplit
+
+ALLOWED_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be",
+                 "vimeo.com", "www.vimeo.com"}
+STOPWORDS = set("""a o as os um uma uns umas de do da dos das e em no na nos nas
+para por com que se como mais menos onde quando porque qual quem foi ser ter
+isso esse essa este esta já muito sobre então também eu você vocês ele ela
+eles elas pelo pela tem não sim mas ao aos à às até só são seu sua seus suas
+meu minha meus minhas pelo porque tudo todos todo toda tanto aqui ali lá
+the and from that this with have your about into there what when where
+which will would could should them they then just very really been were
+are was for you but not""".split())
+HOOKS = ("nunca", "segredo", "erro", "verdade", "incrível", "atenção",
+         "ninguém", "descobri", "aprendi", "cuidado", "por isso", "surpresa",
+         "importante", "como fazer", "por que", "imagine", "absurdo",
+         "never", "secret", "mistake", "actually", "watch", "why", "how to",
+         "unbelievable", "wait", "funny", "risada", "engraçado", "piada")
+
+
+@dataclass(frozen=True)
+class Segment:
+    start: float
+    end: float
+    text: str
+
+
+@dataclass(frozen=True)
+class Candidate:
+    start: float
+    end: float
+    text: str
+    score: float
+
+
+def validate_url(value: str) -> str:
+    """Allow known public video hosts only: avoid arbitrary server-side URL fetching."""
+    value = (value or "").strip()
+    parsed = urlsplit(value)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.hostname.lower() not in ALLOWED_HOSTS:
+        raise ValueError("Por segurança, use um link HTTPS do YouTube/Vimeo ou envie um MP4 próprio.")
+    if parsed.username or parsed.password or parsed.port:
+        raise ValueError("Link com credenciais ou porta personalizada não é permitido.")
+    return value
+
+
+def safe_run(args: list[str], *, cwd: Path | None = None) -> None:
+    result = subprocess.run(args, cwd=str(cwd) if cwd else None,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, check=False)
+    if result.returncode:
+        raise RuntimeError("Erro ao processar vídeo: " + result.stderr[-1400:])
+
+
+def probe_duration(path: Path) -> float:
+    result = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
+        capture_output=True, text=True, check=True)
+    duration = float(result.stdout.strip())
+    if not math.isfinite(duration) or duration < 3 or duration > 7200:
+        raise ValueError("Use vídeos com duração entre 3 segundos e 2 horas.")
+    return duration
+
+
+def acquire_source(url: str, upload: str | None, work: Path) -> Path:
+    if upload:
+        src = Path(upload)
+        if not src.is_file() or src.suffix.lower() not in (".mp4", ".mov", ".mkv", ".webm"):
+            raise ValueError("Envie MP4, MOV, MKV ou WEBM válido.")
+        if src.stat().st_size > 1_000_000_000:
+            raise ValueError("Arquivo acima do limite de 1 GB.")
+        dest = work / ("source" + src.suffix.lower())
+        shutil.copy2(src, dest)
+        return dest
+    url = validate_url(url)
+    import yt_dlp  # import sob demanda
+    opts = {
+        "outtmpl": str(work / "source.%(ext)s"),
+        "format": "bv*[height<=1080]+ba/b[height<=1080]/b",
+        "merge_output_format": "mp4", "noplaylist": True,
+        "quiet": True, "no_warnings": True,
+        "socket_timeout": 20, "retries": 2,
+        "max_filesize": 1_000_000_000,
+        "match_filter": yt_dlp.utils.match_filter_func("duration <= 7200"),
+    }
+    with yt_dlp.YoutubeDL(opts) as client:
+        client.download([url])
+    matches = [p for p in work.glob("source.*") if p.suffix.lower() in
+               (".mp4", ".webm", ".mkv", ".mov")]
+    if not matches:
+        raise ValueError("Não consegui importar este link. Experimente enviar um arquivo autorizado.")
+    return matches[0]
+
+
+@lru_cache(maxsize=1)
+def speech_model():
+    from faster_whisper import WhisperModel
+    return WhisperModel("base", device="cpu", compute_type="int8")
+
+
+def transcribe(path: Path) -> list[Segment]:
+    raw, _info = speech_model().transcribe(
+        str(path), beam_size=3, vad_filter=True, language=None)
+    return [Segment(round(s.start, 3), round(s.end, 3), s.text.strip())
+            for s in raw if s.text.strip() and s.end > s.start]
+
+
+def _tokens(text: str) -> list[str]:
+    normalized = unicodedata.normalize("NFKD", text.lower())
+    normalized = "".join(c for c in normalized if not unicodedata.combining(c))
+    return re.findall(r"[a-z0-9]+", normalized)
+
+
+def score_text(text: str, duration: float) -> float:
+    """Heurística transparente de priorização; não é previsão real de viralização."""
+    if duration <= 0:
+        return 0.0
+    tokens = _tokens(text)
+    count = len(tokens)
+    keywords = sum(1 for token in tokens if token not in STOPWORDS and len(token) > 4)
+    normalized = " ".join(tokens)
+    hook_count = sum(1 for hook in HOOKS if " ".join(_tokens(hook)) in normalized)
+    cadence = min(count / max(duration, 1), 3.4) / 3.4
+    return round(30 * cadence + 25 * min(hook_count, 2) / 2
+                 + 20 * min(keywords / 20, 1)
+                 + 15 * min(duration / 35, 1)
+                 + (10 if "?" in text or "!" in text else 0), 2)
+
+
+def select_clips(segments: list[Segment], count: int = 3,
+                 min_seconds: float = 20, max_seconds: float = 55) -> list[Candidate]:
+    if not segments:
+        return []
+    count = max(1, min(int(count), 6))
+    candidates: list[Candidate] = []
+    for i, first in enumerate(segments):
+        start = max(0.0, first.start - 0.35)
+        pieces: list[str] = []
+        for s in segments[i:]:
+            if s.start - start > max_seconds:
+                break
+            if s.end - start > max_seconds + 1:
+                break
+            pieces.append(s.text)
+            length = s.end - start
+            if length >= min_seconds:
+                text = " ".join(pieces).strip()
+                val = score_text(text, length)
+                if length > 50:
+                    val -= 3
+                candidates.append(Candidate(start, round(s.end + 0.2, 2), text, val))
+                if length >= 38:
+                    break
+    if not candidates:
+        text = " ".join(s.text for s in segments)
+        candidates = [Candidate(max(0, segments[0].start),
+                                segments[-1].end, text,
+                                score_text(text, segments[-1].end - segments[0].start))]
+    chosen = []
+    for c in sorted(candidates, key=lambda x: (-x.score, x.start)):
+        overlap = any(max(0, min(c.end, o.end) - max(c.start, o.start)) >
+                      0.25 * min(c.end - c.start, o.end - o.start) for o in chosen)
+        if not overlap:
+            chosen.append(c)
+        if len(chosen) == count:
+            break
+    return chosen
+
+
+def package_metadata(text: str, ordinal: int) -> dict:
+    """Tags e título fiéis ao conteúdo; não inventa fatos nem promete alcance."""
+    cleaned = re.sub(r"\s+", " ", text).strip()
+    first_sentence = re.split(r"(?<=[.!?])\s+", cleaned)[0]
+    title = " ".join(first_sentence.split()[:11]).strip(" ,.;:")
+    if len(title) < 16:
+        title = " ".join(cleaned.split()[:13]).strip(" ,.;:")
+    title = title[:86].rstrip(" ,.;:")
+    common = Counter(w for w in _tokens(cleaned)
+                     if w not in STOPWORDS and len(w) > 4)
+    tags = []
+    for word, _ in common.most_common(5):
+        if word not in tags:
+            tags.append(word)
+    hashtags = ["#Shorts", "#Cortes"] + ["#" + t.capitalize() for t in tags[:3]]
+    return {
+        "titulo": title or f"Corte {ordinal}",
+        "descricao": (cleaned[:320].rstrip() + ("\n\n" if cleaned else "") +
+                      "Trecho editado do vídeo original. " + " ".join(hashtags)),
+        "hashtags": hashtags,
+        "palavras_chave": tags,
+        "aviso": "Sugestões de SEO, não garantia de alcance ou monetização.",
+    }
+
+
+def _srt_timestamp(t: float) -> str:
+    ms = max(0, round(t * 1000))
+    h, remainder = divmod(ms, 3600000)
+    m, remainder = divmod(remainder, 60000)
+    s, milli = divmod(remainder, 1000)
+    return f"{h:02}:{m:02}:{s:02},{milli:03}"
+
+
+def write_captions(segments: list[Segment], clip: Candidate, output: Path) -> None:
+    """Blocos curtos de 3 a 5 palavras, sincronizados pelo segmento de fala."""
+    lines: list[str] = []
+    index = 1
+    for s in segments:
+        if s.end <= clip.start or s.start >= clip.end:
+            continue
+        words = s.text.split()
+        if not words:
+            continue
+        start = max(s.start, clip.start)
+        end = min(s.end, clip.end)
+        chunks = [words[i:i + 4] for i in range(0, len(words), 4)]
+        for chunk_idx, chunk in enumerate(chunks):
+            a = start + (end - start) * chunk_idx / len(chunks) - clip.start
+            b = start + (end - start) * (chunk_idx + 1) / len(chunks) - clip.start
+            lines.append(f"{index}\n{_srt_timestamp(a)} --> {_srt_timestamp(b)}\n"
+                         + " ".join(chunk).replace("<", "").replace(">", "") + "\n")
+            index += 1
+    output.write_text("\n".join(lines), encoding="utf-8")
+
+
+def render_clip(source: Path, c: Candidate, srt: Path, dest: Path,
+                style: str = "Dinâmico", resolution: int = 720) -> None:
+    if resolution not in (720, 1080):
+        raise ValueError("Resolução inválida.")
+    w, h = resolution, round(resolution * 16 / 9)
+    saturation = "1.16" if style == "Humor leve" else ("1.10" if style == "Dinâmico" else "1.02")
+    # Fundo desfocado + imagem integral: evita cortar rostos e gameplay sem rastreador.
+    vf = (
+        f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,"
+        f"crop={w}:{h},boxblur=20:6[bg];"
+        f"[0:v]scale={w}:{h}:force_original_aspect_ratio=decrease,"
+        f"eq=contrast=1.04:saturation={saturation}[fg];"
+        f"[bg][fg]overlay=(W-w)/2:(H-h)/2:shortest=1,"
+        f"subtitles={srt.name}:force_style='Fontname=DejaVu Sans,"
+        f"Fontsize={24 if resolution == 720 else 32},Bold=1,"
+        f"PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
+        f"Outline=3,Shadow=1,Alignment=2,MarginV={115 if resolution == 720 else 172}',"
+        f"fade=t=in:st=0:d=0.15[v]"
+    )
+    safe_run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+              "-ss", str(c.start), "-t", str(round(c.end - c.start, 2)),
+              "-i", str(source), "-filter_complex", vf, "-map", "[v]",
+              "-map", "0:a?", "-c:v", "libx264", "-preset", "veryfast",
+              "-crf", "23", "-pix_fmt", "yuv420p",
+              "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
+              "-shortest", str(dest)], cwd=srt.parent)
+
+
+def make_cover(source: Path, c: Candidate, title: str, dest: Path) -> None:
+    from PIL import Image, ImageDraw, ImageFont
+    still = dest.with_suffix(".frame.jpg")
+    safe_run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+              "-ss", str(round((c.start + c.end) / 2, 2)), "-i", str(source),
+              "-frames:v", "1", "-vf",
+              "scale=720:1280:force_original_aspect_ratio=decrease,"
+              "pad=720:1280:(ow-iw)/2:(oh-ih)/2:black",
+              str(still)])
+    canvas = Image.open(still).convert("RGBA")
+    overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    paint = ImageDraw.Draw(overlay)
+    paint.rectangle((0, 870, 720, 1280), fill=(0, 0, 0, 205))
+    paint.rounded_rectangle((35, 875, 208, 922), radius=15, fill=(235, 48, 77, 255))
+    font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    font = ImageFont.truetype(font_path, 37) if Path(font_path).exists() else ImageFont.load_default()
+    small = ImageFont.truetype(font_path, 19) if Path(font_path).exists() else ImageFont.load_default()
+    paint.text((55, 885), "CORTE IA", font=small, fill="white")
+    words = title.split()
+    rows, line = [], ""
+    for word in words:
+        test = (line + " " + word).strip()
+        if paint.textbbox((0, 0), test, font=font)[2] > 645 and line:
+            rows.append(line)
+            line = word
+        else:
+            line = test
+    rows.append(line)
+    for i, row in enumerate(rows[:5]):
+        paint.text((36, 945 + 55 * i), row, font=font, fill="white",
+                   stroke_width=1, stroke_fill="black")
+    Image.alpha_composite(canvas, overlay).convert("RGB").save(dest, "JPEG", quality=90)
+    still.unlink(missing_ok=True)
+
+
+def generate(url: str, upload: str | None, rights: bool, count: int,
+             style: str, resolution: int) -> tuple[str, list[str], list[list], str]:
+    if not rights:
+        raise ValueError("Confirme que possui direitos ou autorização para usar este vídeo.")
+    if not (url or upload):
+        raise ValueError("Cole um link ou envie um vídeo.")
+    if style not in ("Dinâmico", "Humor leve", "Sóbrio"):
+        raise ValueError("Estilo inválido.")
+    work = Path(tempfile.mkdtemp(prefix="clipador_"))
+    output = work / "resultados"
+    output.mkdir()
+    source = acquire_source(url, upload, work)
+    duration = probe_duration(source)
+    segments = transcribe(source)
+    if not segments:
+        raise ValueError("Não identifiquei fala. Nesta versão, os melhores cortes dependem da transcrição.")
+    picked = select_clips(segments, count=int(count),
+                          min_seconds=min(20, max(3, duration / 3)),
+                          max_seconds=min(55, duration))
+    covers, rows, exports = [], [], []
+    for n, candidate in enumerate(picked, 1):
+        stem = f"corte_{n:02d}"
+        srt = output / (stem + ".srt")
+        video = output / (stem + ".mp4")
+        cover = output / (stem + "_capa.jpg")
+        meta = package_metadata(candidate.text, n)
+        write_captions(segments, candidate, srt)
+        render_clip(source, candidate, srt, video, style, int(resolution))
+        make_cover(source, candidate, meta["titulo"], cover)
+        (output / (stem + "_seo.json")).write_text(
+            json.dumps({**meta, "inicio": candidate.start,
+                        "fim": candidate.end, "pontuacao_heuristica": candidate.score},
+                       ensure_ascii=False, indent=2), encoding="utf-8")
+        rows.append([n, round(candidate.start, 1), round(candidate.end, 1),
+                     candidate.score, meta["titulo"]])
+        covers.append(str(cover))
+        exports.append(str(video))
+    archive = work / "cortes_prontos.zip"
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as z:
+        for f in output.iterdir():
+            z.write(f, arcname=f.name)
+    message = (f"✅ {len(picked)} corte(s) produzidos do vídeo de {duration:.0f} s. "
+               "Pontuação = priorização heurística, NÃO probabilidade de viralizar. "
+               "Revise os cortes e a licença antes de publicar.")
+    return str(archive), covers, rows, message

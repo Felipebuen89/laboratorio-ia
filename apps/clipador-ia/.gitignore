@@ -1,0 +1,17 @@
+.venv/
+.runtime/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+.env
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.zip
+*.srt
+*.jpg
+*.jpeg
+*.png
+work/
+resultados/

@@ -1,0 +1,23 @@
+{
+  "name": "Clipador IA - Gradio (privado)",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11-bookworm",
+  "postCreateCommand": "bash apps/clipador-ia/scripts/setup.sh",
+  "postStartCommand": "bash apps/clipador-ia/scripts/start.sh",
+  "forwardPorts": [
+    7860
+  ],
+  "portsAttributes": {
+    "7860": {
+      "label": "Clipador IA (privado)",
+      "onAutoForward": "openPreview",
+      "visibility": "private"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  }
+}
