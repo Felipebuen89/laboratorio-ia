@@ -2,3 +2,4 @@ gradio>=5.0,<7
 faster-whisper>=1.1,<2
 yt-dlp>=2025.1
 Pillow>=10,<13
+scenedetect-headless>=0.7,<0.8

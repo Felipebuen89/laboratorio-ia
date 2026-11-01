@@ -1,75 +1,47 @@
-# Clipador IA — MVP gratuito
+# ✂️ Clipador IA v2 — Cortes inteligentes sem assinatura de API
 
-Aplicativo web mobile-first com processamento local de vídeos autorizados. O laboratório original permanece intacto: este código reside somente em apps/clipador-ia.
+Aplicativo de edição para podcasts, entrevistas e vídeos longos **próprios ou licenciados**, acessível pelo navegador quando o Codespaces privado está ativo.
 
-## O que funciona no MVP
+## O que a v2 faz
 
-1. Colar URL HTTPS pública de YouTube/Vimeo (quando a plataforma autorizar o acesso) ou enviar MP4/MOV/MKV/WEBM.
-2. Transcrever fala com faster-whisper base em CPU, sem API ou assinatura.
-3. Agrupar frases em cortes de aproximadamente 20–55 segundos; pontuar *heuristicamente* ganchos, densidade e clareza de fala; selecionar clipes com sobreposição limitada.
-4. Renderizar vídeo vertical 9:16 com fundo desfocado e imagem preservada (sem crop de rostos), cor por estilo e fade inicial.
-5. Inserir legendas curtas no vídeo e exportar .srt para correções.
-6. Gerar capas verticais a partir de fotograma real, título, descrição, hashtags e palavras-chave fiéis ao trecho.
-7. Baixar ZIP com MP4, SRT, capa e SEO em JSON. Sem marca d'água própria.
+- Recebe arquivo local MP4/MOV/MKV/WEBM ou link público HTTPS do YouTube, Instagram, Facebook ou Vimeo, conforme o extrator yt-dlp permitir. Não contorna bloqueios, DRM, login ou paywall.
+- Transcreve falas em CPU com faster-whisper e timestamps por palavra.
+- Propõe até 6 cortes com critérios heurísticos de ganchos, densidade da fala, fechamento de frase e mudanças visuais detectadas pelo PySceneDetect.
+- Opcional: modelo gratuito rodando **localmente em Ollama** pode reordenar candidatos. Requer instalação separada, memória e espaço; não está conectado automaticamente.
+- Em vídeos sem fala, oferece trechos visuais experimentais (não compreende a história só pela imagem).
+- Edita em 9:16 com fundo desfocado, cor e fade; gera legendas embutidas com palavra destacada, SRT e ASS.
+- Gera capas usando fotogramas, título e descrição fiéis à transcrição, hashtags e arquivo JSON de SEO.
+- Mostra prévia do primeiro corte e exporta o pacote ZIP com vídeos e materiais.
 
-**Limites honestos**: Não existe predição confiável de viralização; o escore só ordena candidatos. Nesta versão não há rastreamento facial, edição fina de timeline, reconhecimento de melhores momentos sem fala, transições avançadas, publicação automática, sotaque/dublagem, trilha sonora nem humor escrito por LLM. "Humor leve" ajusta o visual; não inventa piadas nem altera as falas.
+## O que ainda NÃO faz
 
-## Executar (Linux / Codespaces)
+Não faz previsão real de viralização, interpretação semântica de cenas de humor, tracking facial, edição de memes/transições complexas, narração gerada, publicação automática ou certificação de originalidade/monetização. O estilo Humor leve só muda o visual. **Efeitos e legendas não tornam automaticamente um vídeo reutilizado monetizável.** Verifique autorização e acrescente contribuição criativa substancial.
 
-Requer Python 3.11+, FFmpeg com libass, ffprobe e fontes DejaVu. É um app separado; não modifica o devcontainer do Free Claude Code.
+## Abrir pelo iPhone/Android sem terminal manual
 
-~~~bash
-cd apps/clipador-ia
-sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python ui.py
-~~~
+1. Entre em https://github.com/Felipebuen89/laboratorio-ia com a conta GitHub.
+2. Abra **Code → Codespaces → New with options**, escolha branch main e o devcontainer **Clipador IA - Gradio (privado)**, em .devcontainer/clipador-ia/devcontainer.json.
+3. A preparação automática instala Python, FFmpeg, fontes e bibliotecas; o app tenta iniciar pela porta 7860. Abra-a na aba **Ports**, visibilidade **Private**.
+4. Marque a autorização de direitos, cole seu link ou envie vídeo próprio e selecione as opções.
+5. Revise o resultado antes de publicar.
 
-Abrir porta privada 7860 no Codespaces. O app inicia apenas em 127.0.0.1; para acesso remoto via port forwarding privado, ajustar manualmente a ligação de rede do serviço e manter autenticação do Codespaces. **Nunca expor servidor público de processamento de links.** A primeira transcrição baixa pesos do modelo Whisper.
+Esta abertura num Codespaces real **ainda não foi testada**. A configuração principal do Laboratório IA não foi alterada. GitHub Codespaces tem cotas gratuitas e pode gerar cobrança fora dos limites; não é hospedagem permanente.
 
-## Testes rápidos
+## Testes e segurança
 
-~~~bash
-cd apps/clipador-ia
-python -m pip install pytest
-pytest -q tests
-~~~
+O GitHub Actions verifica sintaxe, interface e teste de vídeo sintético com MP4, SRT, ASS, capa e ZIP. Isso **não comprova** acesso a links reais, acerto editorial ou transcrição de podcast em produção. Sem vídeo de terceiros ou credenciais nos testes.
 
-O CI valida cinco testes (incluindo geração real de MP4 sintético com legendas e capa), instalação das dependências e importação da interface Gradio. Ainda **não** valida transcrição Whisper em vídeo falado, escolha editorial de melhores trechos nem acesso real ao Codespaces.
+- Repositório público = somente código. Não commitar segredos, vídeos particulares nem cookies.
+- Servidor só privado, acesso via Codespaces autenticado, sem compartilhamento público.
+- Os processamentos devem ser apagados regularmente do armazenamento temporário. Para produção multiusuário, faltam autenticação, filas e limites robustos de recursos.
 
-## Segurança, direitos e custos
+## Bibliotecas e pesquisa
 
-- Processar só vídeos próprios ou com permissão de reutilização. Não contorna DRM, paywall, cookies ou limitações de acesso.
-- A licença dos modelos e da mídia deve ser verificada individualmente. O app **não** torna o conteúdo original automaticamente.
-- Regras de monetização do YouTube exigem contribuição criativa substancial; legenda, cortes e efeitos mínimos podem continuar sendo *reused content*.
-- Codespaces tem cotas gratuitas, mas consome CPU e armazenamento. 1080p na CPU pode ser lento. Não prometer execução contínua grátis.
-- O repositório está público. Nunca commitar vídeos particulares, tokens, cookies ou arquivos gerados; use os diretórios temporários fora do Git.
-- Para produção: autenticação, fila, isolamento dos workers, cotas por usuário, varredura de arquivo, limitação de download e expiração do armazenamento são obrigatórios.
+- https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md
+- https://github.com/SYSTRAN/faster-whisper
+- https://github.com/Breakthrough/PySceneDetect
+- https://github.com/artbyjazi/autoclip
+- https://github.com/mehbul/chopify
+- https://support.google.com/youtube/answer/1311392
 
-## Pesquisa e referências técnicas
-
-- [AutoClip de artbyjazi — MIT](https://github.com/artbyjazi/autoclip): pipeline local, Whisper, Ollama, legenda e reenquadramento.
-- [AutoClip chinês de zhouxiaoka — MIT](https://github.com/zhouxiaoka/autoclip): vídeo, capa e publicação de um único link.
-- [FunClip / ModelScope — MIT](https://github.com/modelscope/FunClip): clipping guiado por transcrição e falante.
-- [Chopify — MIT](https://github.com/mehbul/chopify): edição de legenda, retomada de jobs e interface local.
-- [Políticas de monetização do YouTube](https://support.google.com/youtube/answer/1311392)
-- [Capas do Shorts no YouTube Studio](https://support.google.com/youtube/answer/72431)
-
-Implementação própria inspirada em arquiteturas publicadas, sem copiar arquivos de concorrentes proprietários.
-
-
-## Abrir pelo celular sem digitar comandos (Codespaces novo)
-
-Use o GitHub autenticado e escolha **New codespace with options** no repositório, branch
-main, configuração **Clipador IA - Gradio (privado)**.
-A configuração separada fica em .devcontainer/clipador-ia/devcontainer.json.
-Acesse https://github.com/Felipebuen89/laboratorio-ia e abra **Code > Codespaces > New with options**.
-Ela instala Python, FFmpeg, fontes e dependências ao criar o ambiente; o app inicia
-automaticamente ao abrir o Codespaces. Na aba **Ports**, abra a porta privada 7860.
-Não mude a visibilidade para Public. Não é hospedagem 24/7: o Codespaces dorme,
-precisa ser reaberto e consome cota de CPU/armazenamento.
-
-**Atenção:** a configuração padrão do laboratório segue sendo outra; o Codespaces antigo
-não muda sozinho, e esta nova configuração ainda precisa ser testada no Codespaces real.
+Implementação própria, sem copiar código fechado de concorrentes.
