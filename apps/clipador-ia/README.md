@@ -1,3 +1,45 @@
+# Clipador IA v2 — evolução do MVP
+
+Um vídeo ou podcast longo autorizado pode ser transformado em até seis cortes verticais, com legenda sincronizada por palavra, capa e pacote de publicação. O app roda em ambiente privado no GitHub Codespaces (quando iniciado) e não precisa de APIs comerciais.
+
+## Recursos da v2
+
+- Links HTTPS públicos de YouTube, Instagram, Facebook e Vimeo, sujeitos à disponibilidade dos extratores do yt-dlp. Não usa login, cookies, DRM ou técnicas de evasão; se a plataforma bloquear, envie um arquivo autorizado.
+- Whisper base em CPU com timestamps por palavra, SRT e legenda dinâmica ASS com destaque da palavra ativa incorporada ao MP4.
+- Pontuação heurística de gancho inicial, densidade, fechamento de frase e bônus para mudanças de cena do PySceneDetect.
+- IA local (Ollama) opcional, desativada por padrão: ordena uma shortlist de cortes já selecionados sem inventar falas nem timestamps. Configure a variável CLIPADOR_OLLAMA_MODEL para um modelo local (exemplo qwen2.5:3b), que precisa ser instalado à parte com RAM suficiente. Se não houver IA, a seleção heurística continua.
+- Se não houver fala, pode propor cortes visuais experimentais. Não reconhece humor, história ou emoção somente pelas imagens.
+- Prévia do primeiro vídeo e download ZIP com MP4, SRT, ASS, capa e SEO JSON.
+- Visual mobile-friendly, sem marca d'água própria.
+
+## O que ainda falta
+
+Sem análise semântica visual real, tracking de rosto, efeitos de meme, narração gerada, geração de piadas, publicação automática, previsão real de viralização, teste real com links Instagram/Facebook, nem confirmação de elegibilidade para monetização. O preset Humor leve só altera a estética.
+
+**Monetização:** ter autorização de uso não garante aceitação pelas políticas de conteúdo reutilizado. É necessária contribuição original substancial e revisão humana.
+
+## Abrir no celular
+
+1. Abra https://github.com/Felipebuen89/laboratorio-ia, autenticado no GitHub.
+2. Use Code → Codespaces → New with options, branch main e a configuração Clipador IA - Gradio (privado), no caminho .devcontainer/clipador-ia/devcontainer.json.
+3. Um Codespaces novo instala as dependências e tenta iniciar o app. Abra a porta 7860 na aba Ports com visibilidade Private. **Ainda não foi validado num Codespaces real.**
+4. Cole link ou envie vídeo autorizado; escolha cortes e estilo, clique Produzir cortes.
+5. Revise cada MP4, legenda, capa e texto antes de publicar.
+
+**Segurança:** o repositório é público. Nunca envie tokens, cookies, vídeos particulares ou senhas para o GitHub. O Codespaces consome cotas de CPU e armazenamento e não é hospedagem contínua grátis.
+
+## Referências de engenharia
+
+- https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md
+- https://github.com/Breakthrough/PySceneDetect
+- https://github.com/SYSTRAN/faster-whisper
+- https://github.com/artbyjazi/autoclip
+- https://support.google.com/youtube/answer/1311392
+
+Não copiamos código de concorrentes proprietários.
+
+---
+
 # Clipador IA — MVP gratuito
 
 Aplicativo web mobile-first com processamento local de vídeos autorizados. O laboratório original permanece intacto: este código reside somente em apps/clipador-ia.
