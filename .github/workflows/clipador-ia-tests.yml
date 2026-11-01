@@ -1,4 +1,4 @@
-name: Clipador IA - testes de logica e render
+name: Clipador IA - testes de logica, render e interface
 
 on:
   push:
@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  tests:
+  video-smoke:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -26,9 +26,22 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core
       - name: Install test dependencies
         run: python -m pip install "pytest>=8,<10" "Pillow>=10,<13"
-      - name: Check FFmpeg
-        run: ffmpeg -version
-      - name: Check syntax
-        run: python -m compileall -q engine.py ui.py
+      - name: Check syntax and bash scripts
+        run: python -m compileall -q engine.py ui.py && bash -n scripts/setup.sh scripts/start.sh
       - name: Unit tests and render smoke test
         run: python -m pytest -q tests
+
+  interface-smoke:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/clipador-ia
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install full application dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Load Gradio interface
+        run: python -c "import ui; assert ui.demo is not None; print('Interface carregada')"
