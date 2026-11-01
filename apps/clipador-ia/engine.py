@@ -182,7 +182,7 @@ def _asr_segments(path: Path, *, shift: float = 0) -> list[Segment]:
     return results
 
 
-def transcribe(path: Path) -> list[Segment]:
+def transcribe(path: Path, on_progress=None) -> list[Segment]:
     """Transcreve podcasts longos dividindo o áudio em blocos independentes.
 
     Cada bloco é descarregado da memória antes do próximo. Isso não torna uma
@@ -197,7 +197,10 @@ def transcribe(path: Path) -> list[Segment]:
     duration = probe_duration(path)
     chunk_size = min(600, max(60, int(os.getenv("CLIPADOR_AUDIO_CHUNK_SECONDS", "300"))))
     if duration <= chunk_size:
-        return _asr_segments(path)
+        result = _asr_segments(path)
+        if on_progress:
+            on_progress(1.0, "Transcrição concluída")
+        return result
     results: list[Segment] = []
     work = Path(tempfile.mkdtemp(prefix="clipador_audio_"))
     try:
@@ -212,6 +215,9 @@ def transcribe(path: Path) -> list[Segment]:
             ])
             try:
                 results.extend(_asr_segments(chunk, shift=offset))
+                if on_progress:
+                    on_progress((i + 1) / math.ceil(duration / chunk_size),
+                                f"Transcrevendo áudio: bloco {i + 1} de {math.ceil(duration / chunk_size)}")
             finally:
                 chunk.unlink(missing_ok=True)
     finally:
@@ -412,7 +418,7 @@ def make_cover(source: Path, c: Candidate, title: str, dest: Path) -> None:
 
 def generate(url: str, upload: str | None, rights: bool, count: int,
              style: str, resolution: int, scene_analysis: bool = True,
-             local_ai: bool = False) -> tuple[str, list[str], list[list], str]:
+             local_ai: bool = False, progress=None) -> tuple[str, list[str], list[list], str]:
     """Executa pipeline v2; fallback visual só indica trechos para revisão humana."""
     from advanced import (detect_scene_times, rerank_with_ollama,
                           select_visual_only, write_dynamic_ass)
@@ -439,10 +445,18 @@ def generate(url: str, upload: str | None, rights: bool, count: int,
     work = Path(tempfile.mkdtemp(prefix="clipador_"))
     output = work / "resultados"
     output.mkdir()
+    if progress:
+        progress(0.02, desc="Importando vídeo...")
     source = acquire_source(url, upload, work)
     duration = probe_duration(source)
     scene_times, scene_status = detect_scene_times(source, duration, scene_analysis)
-    segments = transcribe(source)
+    if progress:
+        progress(0.12, desc="Preparando a transcrição...")
+    segments = transcribe(
+        source,
+        on_progress=(lambda ratio, msg: progress(0.12 + 0.67 * ratio, desc=msg))
+        if progress else None
+    )
     if segments:
         # Com modelo local disponível, oferecemos até 6 candidatos para comparação.
         pool_size = 6 if local_ai else int(count)
@@ -461,6 +475,9 @@ def generate(url: str, upload: str | None, rights: bool, count: int,
         raise ValueError("Não foi possível encontrar trechos adequados neste vídeo.")
     covers, rows = [], []
     for n, candidate in enumerate(picked, 1):
+        if progress:
+            progress(0.79 + 0.19 * (n - 1) / len(picked),
+                     desc=f"Renderizando corte {n} de {len(picked)}...")
         stem = f"corte_{n:02d}"
         srt = output / (stem + ".srt")
         ass = output / (stem + ".ass")
@@ -485,6 +502,8 @@ def generate(url: str, upload: str | None, rights: bool, count: int,
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as z:
         for file in output.iterdir():
             z.write(file, arcname=file.name)
+    if progress:
+        progress(1.0, desc="Pacote pronto para download!")
     message = (f"✅ {len(picked)} corte(s) criados a partir de {duration:.0f} segundos. "
                f"{scene_status}. {selection_status}. "
                "Os scores são sinais heurísticos, não previsões de viralização; "
