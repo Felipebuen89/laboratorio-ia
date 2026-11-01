@@ -1,3 +1,19 @@
+## Atualização: podcasts longos e links de arquivos
+
+- O bloqueio de **20 minutos foi removido**. No Render, `CLIPADOR_MAX_SECONDS=0`
+  representa ausência de limite automático de duração; o upload continua limitado
+  a 1 GB e o processamento gratuito pode falhar por CPU/memória/reinício.
+- O áudio é transcrito em segmentos de 5 minutos, com progresso visível para
+  podcasts de 2 horas ou mais, reduzindo a memória de transcrição.
+- Além do YouTube/Instagram/Facebook/Vimeo, o app tenta ler **links públicos
+  de arquivos do Google Drive ou Dropbox** autorizados, sem ignorar login/DRM.
+- Não é possível garantir download de qualquer link do YouTube pelo Render.
+  Quando bloqueado por verificação antibot, use o arquivo original autorizado.
+- Testes automatizados simulam podcasts com mais de 2 horas. A execução real
+  de 2h em Render Free **ainda não foi validada**.
+
+---
+
 # Publicação em um clique no Render (opcional)
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https%3A%2F%2Fgithub.com%2FFelipebuen89%2Flaboratorio-ia)
