@@ -11,12 +11,13 @@ PUBLIC_MODE = os.getenv("CLIPADOR_PUBLIC_MODE") == "1"
 MAX_FILE_MB = int(os.getenv("CLIPADOR_MAX_BYTES", "1000000000")) // 1_000_000
 
 
-def processar(link, arquivo, direitos, quantidade, estilo, qualidade, cenas, ia_local):
+def processar(link, arquivo, direitos, quantidade, estilo, qualidade, cenas, ia_local,
+              progress=gr.Progress()):
     """Exibe um único aviso claro no painel, sem quebrar cada saída do Gradio."""
     try:
         archive, covers, rows, message = generate(
             link, arquivo, direitos, int(quantidade), estilo, int(qualidade),
-            scene_analysis=bool(cenas), local_ai=bool(ia_local))
+            scene_analysis=bool(cenas), local_ai=bool(ia_local), progress=progress)
         first_video = Path(archive).parent / "resultados" / "corte_01.mp4"
         return archive, str(first_video) if first_video.exists() else None, covers, rows, message
     except ValueError as exc:
@@ -26,7 +27,8 @@ def processar(link, arquivo, direitos, quantidade, estilo, qualidade, cenas, ia_
         # Não expõe stacktrace, nomes de arquivos privados ou dados do servidor na UI.
         return None, None, [], [], (
             "⚠️ **Falha ao processar este vídeo.** O app não conseguiu finalizar a edição. "
-            "Tente um arquivo MP4 próprio e curto. Se persistir, precisamos consultar os logs."
+            "Vídeos longos podem exceder a memória ou o tempo da hospedagem gratuita. "
+            "Experimente um arquivo menor ou o Codespaces; se persistir, consulte os logs."
         )
 
 
@@ -79,19 +81,22 @@ with gr.Blocks(title="Clipador IA | Estúdio de Cortes", theme=gr.themes.Soft(),
     )
     if PUBLIC_MODE:
         gr.Markdown(
-            "🧪 **Beta gratuito:** até **20 minutos**, **"
+            "🎙️ **Podcasts longos:** sem limite fixo de duração no aplicativo, "
+            "inclusive 2 horas ou mais. "
+            "Limite de **"
             + str(MAX_FILE_MB)
-            + " MB**, **2 cortes** e **720p** por processamento. "
-            "Podcasts maiores podem ser processados na versão para Codespaces. "
-            "O serviço pode demorar a acordar após ficar inativo."
+            + " MB** por arquivo, **2 cortes** e **720p** por processamento. "
+            "A edição é dividida em blocos, mas o plano gratuito do Render "
+            "pode reiniciar ou esgotar seus recursos em vídeos grandes. "
+            "Para trabalhos pesados, use a versão Codespaces."
         )
 
     gr.Markdown("## 1. Escolha o vídeo")
     link = gr.Textbox(
         label="Cole o link do vídeo",
-        placeholder="Link público do YouTube, Instagram, Facebook ou Vimeo",
+        placeholder="YouTube, Instagram, Facebook, Google Drive, Dropbox ou Vimeo",
         lines=1,
-        info="Links do YouTube podem ser bloqueados pela verificação antibot. Se acontecer, use o upload de um MP4 autorizado."
+        info="O YouTube pode bloquear downloads em servidores. Links públicos de arquivos no Drive e Dropbox também são aceitos quando acessíveis. Sem burlar logins ou controles."
     )
     arquivo = gr.File(
         label="Ou envie o arquivo do vídeo",
@@ -131,6 +136,8 @@ with gr.Blocks(title="Clipador IA | Estúdio de Cortes", theme=gr.themes.Soft(),
 
     gr.Markdown("## 3. Gere e revise os resultados")
     botao = gr.Button("✨ Produzir meus cortes", variant="primary", elem_classes=["primary-action"])
+    gr.Markdown("⏳ **Podcasts longos:** acompanhe o progresso da transcrição; "
+                "fechar a página ou reiniciar o servidor pode interromper o trabalho.")
     status = gr.Markdown("✅ Pronto para receber o vídeo. O resultado ou um aviso aparecerá aqui.")
     preview = gr.Video(label="Assista ao primeiro corte")
     download = gr.File(label="Baixar todos os cortes e capas (ZIP)")
