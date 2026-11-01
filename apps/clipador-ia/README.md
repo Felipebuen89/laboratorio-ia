@@ -37,7 +37,7 @@ python -m pip install pytest
 pytest -q tests
 ~~~
 
-O CI roda apenas testes de lógica (sem grandes downloads de modelos ou processamento de vídeos). O teste de ponta a ponta exige um vídeo autorizado e ambiente com FFmpeg. Não indicar como validado até obter um MP4 real.
+O CI valida cinco testes (incluindo geração real de MP4 sintético com legendas e capa), instalação das dependências e importação da interface Gradio. Ainda **não** valida transcrição Whisper em vídeo falado, escolha editorial de melhores trechos nem acesso real ao Codespaces.
 
 ## Segurança, direitos e custos
 
@@ -63,8 +63,9 @@ Implementação própria inspirada em arquiteturas publicadas, sem copiar arquiv
 ## Abrir pelo celular sem digitar comandos (Codespaces novo)
 
 Use o GitHub autenticado e escolha **New codespace with options** no repositório, branch
-feature/clipador-ia-mvp, configuração **Clipador IA - Gradio**.
+main, configuração **Clipador IA - Gradio (privado)**.
 A configuração separada fica em .devcontainer/clipador-ia/devcontainer.json.
+Acesse https://github.com/Felipebuen89/laboratorio-ia e abra **Code > Codespaces > New with options**.
 Ela instala Python, FFmpeg, fontes e dependências ao criar o ambiente; o app inicia
 automaticamente ao abrir o Codespaces. Na aba **Ports**, abra a porta privada 7860.
 Não mude a visibilidade para Public. Não é hospedagem 24/7: o Codespaces dorme,
