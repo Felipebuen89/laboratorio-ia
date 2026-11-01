@@ -92,11 +92,17 @@ with gr.Blocks(title="Clipador IA | Estúdio de Cortes", theme=gr.themes.Soft(),
         )
 
     gr.Markdown("## 1. Escolha o vídeo")
+    gr.Markdown(
+        "**Recomendado para um link que funcione:** use o endereço de compartilhamento "
+        "de um **arquivo MP4 autorizado no Dropbox**. O app converte automaticamente "
+        "o link de visualização em download. Links do YouTube podem ser recusados "
+        "pela verificação antibot, mesmo sendo públicos."
+    )
     link = gr.Textbox(
-        label="Cole o link do vídeo",
-        placeholder="YouTube, Instagram, Facebook, Google Drive, Dropbox ou Vimeo",
+        label="Link do vídeo ou do arquivo original",
+        placeholder="https://www.dropbox.com/scl/fi/.../podcast.mp4?dl=0",
         lines=1,
-        info="O YouTube pode bloquear downloads em servidores. Links públicos de arquivos no Drive e Dropbox também são aceitos quando acessíveis. Sem burlar logins ou controles."
+        info="Dropbox: link público de arquivo com download permitido. Drive e redes sociais podem ter restrições. Não use links privados."
     )
     arquivo = gr.File(
         label="Ou envie o arquivo do vídeo",
