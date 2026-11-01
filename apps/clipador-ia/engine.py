@@ -16,7 +16,9 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 ALLOWED_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be",
-                 "vimeo.com", "www.vimeo.com"}
+                 "vimeo.com", "www.vimeo.com", "instagram.com", "www.instagram.com",
+                 "facebook.com", "www.facebook.com", "m.facebook.com",
+                 "web.facebook.com", "fb.watch", "www.fb.watch"}
 STOPWORDS = set("""a o as os um uma uns umas de do da dos das e em no na nos nas
 para por com que se como mais menos onde quando porque qual quem foi ser ter
 isso esse essa este esta já muito sobre então também eu você vocês ele ela
@@ -33,10 +35,18 @@ HOOKS = ("nunca", "segredo", "erro", "verdade", "incrível", "atenção",
 
 
 @dataclass(frozen=True)
+class Word:
+    start: float
+    end: float
+    text: str
+
+
+@dataclass(frozen=True)
 class Segment:
     start: float
     end: float
     text: str
+    words: tuple[Word, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -52,9 +62,11 @@ def validate_url(value: str) -> str:
     value = (value or "").strip()
     parsed = urlsplit(value)
     if parsed.scheme != "https" or not parsed.hostname or parsed.hostname.lower() not in ALLOWED_HOSTS:
-        raise ValueError("Por segurança, use um link HTTPS do YouTube/Vimeo ou envie um MP4 próprio.")
+        raise ValueError("Use um link HTTPS público do YouTube, Instagram, Facebook ou Vimeo; ou envie um vídeo próprio.")
     if parsed.username or parsed.password or parsed.port:
         raise ValueError("Link com credenciais ou porta personalizada não é permitido.")
+    if not parsed.path or parsed.path == "/":
+        raise ValueError("Informe o endereço de um vídeo específico, não a página inicial.")
     return value
 
 
@@ -115,9 +127,20 @@ def speech_model():
 
 def transcribe(path: Path) -> list[Segment]:
     raw, _info = speech_model().transcribe(
-        str(path), beam_size=3, vad_filter=True, language=None)
-    return [Segment(round(s.start, 3), round(s.end, 3), s.text.strip())
-            for s in raw if s.text.strip() and s.end > s.start]
+        str(path), beam_size=3, vad_filter=True, language=None,
+        word_timestamps=True)
+    results = []
+    for seg in raw:
+        if not seg.text.strip() or seg.end <= seg.start:
+            continue
+        words = tuple(
+            Word(round(w.start, 3), round(w.end, 3), w.word.strip())
+            for w in (seg.words or []) if w.start is not None
+            and w.end is not None and w.end > w.start and w.word.strip()
+        )
+        results.append(Segment(round(seg.start, 3), round(seg.end, 3),
+                               seg.text.strip(), words))
+    return results
 
 
 def _tokens(text: str) -> list[str]:
@@ -136,14 +159,22 @@ def score_text(text: str, duration: float) -> float:
     normalized = " ".join(tokens)
     hook_count = sum(1 for hook in HOOKS if " ".join(_tokens(hook)) in normalized)
     cadence = min(count / max(duration, 1), 3.4) / 3.4
-    return round(30 * cadence + 25 * min(hook_count, 2) / 2
+    start_text = " ".join(tokens[:22])
+    start_hook = sum(1 for hook in HOOKS if " ".join(_tokens(hook)) in start_text)
+    ends_clean = bool(re.search(r"[.!…]\s*$", text))
+    trailing = tokens[-1] if tokens else ""
+    unfinished = trailing in {"porque", "entao", "mas", "and", "because", "but"}
+    return round(30 * cadence + 20 * min(hook_count, 2) / 2
                  + 20 * min(keywords / 20, 1)
-                 + 15 * min(duration / 35, 1)
-                 + (10 if "?" in text or "!" in text else 0), 2)
+                 + 12 * min(duration / 35, 1)
+                 + 13 * min(start_hook, 1)
+                 + (5 if ends_clean else 0)
+                 - (10 if unfinished else 0), 2)
 
 
 def select_clips(segments: list[Segment], count: int = 3,
-                 min_seconds: float = 20, max_seconds: float = 55) -> list[Candidate]:
+                 min_seconds: float = 20, max_seconds: float = 55,
+                 scene_times: tuple[float, ...] = ()) -> list[Candidate]:
     if not segments:
         return []
     count = max(1, min(int(count), 6))
@@ -160,7 +191,8 @@ def select_clips(segments: list[Segment], count: int = 3,
             length = s.end - start
             if length >= min_seconds:
                 text = " ".join(pieces).strip()
-                val = score_text(text, length)
+                from advanced import visual_bonus
+                val = score_text(text, length) + visual_bonus(start, s.end, scene_times)
                 if length > 50:
                     val -= 3
                 candidates.append(Candidate(start, round(s.end + 0.2, 2), text, val))
@@ -216,24 +248,18 @@ def _srt_timestamp(t: float) -> str:
 
 
 def write_captions(segments: list[Segment], clip: Candidate, output: Path) -> None:
-    """Blocos curtos de 3 a 5 palavras, sincronizados pelo segmento de fala."""
-    lines: list[str] = []
-    index = 1
-    for s in segments:
-        if s.end <= clip.start or s.start >= clip.end:
+    """SRT de 4 palavras, com tempos reais quando o Whisper fornece timestamps."""
+    from advanced import words_for_clip
+    words = words_for_clip(segments, clip)
+    lines = []
+    for idx in range(0, len(words), 4):
+        group = words[idx: idx + 4]
+        if not group:
             continue
-        words = s.text.split()
-        if not words:
-            continue
-        start = max(s.start, clip.start)
-        end = min(s.end, clip.end)
-        chunks = [words[i:i + 4] for i in range(0, len(words), 4)]
-        for chunk_idx, chunk in enumerate(chunks):
-            a = start + (end - start) * chunk_idx / len(chunks) - clip.start
-            b = start + (end - start) * (chunk_idx + 1) / len(chunks) - clip.start
-            lines.append(f"{index}\n{_srt_timestamp(a)} --> {_srt_timestamp(b)}\n"
-                         + " ".join(chunk).replace("<", "").replace(">", "") + "\n")
-            index += 1
+        start = group[0].start
+        end = max(group[-1].end, start + 0.02)
+        line = " ".join(w.text for w in group).replace("<", "").replace(">", "")
+        lines.append(f"{idx // 4 + 1}\n{_srt_timestamp(start)} --> {_srt_timestamp(end)}\n{line}\n")
     output.write_text("\n".join(lines), encoding="utf-8")
 
 
@@ -244,17 +270,19 @@ def render_clip(source: Path, c: Candidate, srt: Path, dest: Path,
     w, h = resolution, round(resolution * 16 / 9)
     saturation = "1.16" if style == "Humor leve" else ("1.10" if style == "Dinâmico" else "1.02")
     # Fundo desfocado + imagem integral: evita cortar rostos e gameplay sem rastreador.
+    ass_path = srt.with_suffix(".ass")
+    subtitle_filter = (f"ass={ass_path.name}" if ass_path.exists()
+                       else f"subtitles={srt.name}:force_style='Fontname=DejaVu Sans,"
+                            f"Fontsize={24 if resolution == 720 else 32},Bold=1,"
+                            f"PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
+                            f"Outline=3,Shadow=1,Alignment=2,MarginV={115 if resolution == 720 else 172}'")
     vf = (
         f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,"
         f"crop={w}:{h},boxblur=20:6[bg];"
         f"[0:v]scale={w}:{h}:force_original_aspect_ratio=decrease,"
         f"eq=contrast=1.04:saturation={saturation}[fg];"
         f"[bg][fg]overlay=(W-w)/2:(H-h)/2:shortest=1,"
-        f"subtitles={srt.name}:force_style='Fontname=DejaVu Sans,"
-        f"Fontsize={24 if resolution == 720 else 32},Bold=1,"
-        f"PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
-        f"Outline=3,Shadow=1,Alignment=2,MarginV={115 if resolution == 720 else 172}',"
-        f"fade=t=in:st=0:d=0.15[v]"
+        + subtitle_filter + ",fade=t=in:st=0:d=0.15[v]"
     )
     safe_run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
               "-ss", str(c.start), "-t", str(round(c.end - c.start, 2)),
@@ -301,7 +329,11 @@ def make_cover(source: Path, c: Candidate, title: str, dest: Path) -> None:
 
 
 def generate(url: str, upload: str | None, rights: bool, count: int,
-             style: str, resolution: int) -> tuple[str, list[str], list[list], str]:
+             style: str, resolution: int, scene_analysis: bool = True,
+             local_ai: bool = False) -> tuple[str, list[str], list[list], str]:
+    """Executa pipeline v2; fallback visual só indica trechos para revisão humana."""
+    from advanced import (detect_scene_times, rerank_with_ollama,
+                          select_visual_only, write_dynamic_ass)
     if not rights:
         raise ValueError("Confirme que possui direitos ou autorização para usar este vídeo.")
     if not (url or upload):
@@ -313,35 +345,49 @@ def generate(url: str, upload: str | None, rights: bool, count: int,
     output.mkdir()
     source = acquire_source(url, upload, work)
     duration = probe_duration(source)
+    scene_times, scene_status = detect_scene_times(source, duration, scene_analysis)
     segments = transcribe(source)
-    if not segments:
-        raise ValueError("Não identifiquei fala. Nesta versão, os melhores cortes dependem da transcrição.")
-    picked = select_clips(segments, count=int(count),
-                          min_seconds=min(20, max(3, duration / 3)),
-                          max_seconds=min(55, duration))
-    covers, rows, exports = [], [], []
+    if segments:
+        picked = select_clips(
+            segments, count=int(count), scene_times=tuple(scene_times),
+            min_seconds=min(20, max(3, duration / 3)), max_seconds=min(55, duration))
+        picked, selection_status = rerank_with_ollama(picked, enabled=local_ai)
+    else:
+        if not scene_analysis:
+            raise ValueError("Não identifiquei fala. Ative a análise visual para receber cortes experimentais.")
+        picked = select_visual_only(duration, scene_times, count=int(count))
+        selection_status = ("Sem fala reconhecida: cortes visuais experimentais. "
+                            "Não foi possível avaliar a história, humor nem SEO automaticamente.")
+    if not picked:
+        raise ValueError("Não foi possível encontrar trechos adequados neste vídeo.")
+    covers, rows = [], []
     for n, candidate in enumerate(picked, 1):
         stem = f"corte_{n:02d}"
         srt = output / (stem + ".srt")
+        ass = output / (stem + ".ass")
         video = output / (stem + ".mp4")
         cover = output / (stem + "_capa.jpg")
-        meta = package_metadata(candidate.text, n)
+        meta = package_metadata(candidate.text if segments else "", n)
         write_captions(segments, candidate, srt)
+        if segments:
+            write_dynamic_ass(segments, candidate, ass, style)
         render_clip(source, candidate, srt, video, style, int(resolution))
         make_cover(source, candidate, meta["titulo"], cover)
         (output / (stem + "_seo.json")).write_text(
             json.dumps({**meta, "inicio": candidate.start,
-                        "fim": candidate.end, "pontuacao_heuristica": candidate.score},
+                        "fim": candidate.end, "prioridade_heuristica": candidate.score,
+                        "fonte": url or "Arquivo enviado pelo usuário",
+                        "revisao_humana_necessaria": True},
                        ensure_ascii=False, indent=2), encoding="utf-8")
         rows.append([n, round(candidate.start, 1), round(candidate.end, 1),
                      candidate.score, meta["titulo"]])
         covers.append(str(cover))
-        exports.append(str(video))
     archive = work / "cortes_prontos.zip"
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as z:
-        for f in output.iterdir():
-            z.write(f, arcname=f.name)
-    message = (f"✅ {len(picked)} corte(s) produzidos do vídeo de {duration:.0f} s. "
-               "Pontuação = priorização heurística, NÃO probabilidade de viralizar. "
-               "Revise os cortes e a licença antes de publicar.")
+        for file in output.iterdir():
+            z.write(file, arcname=file.name)
+    message = (f"✅ {len(picked)} corte(s) criados a partir de {duration:.0f} segundos. "
+               f"{scene_status}. {selection_status}. "
+               "Os scores são sinais heurísticos, não previsões de viralização; "
+               "revise narrativa, licenças e originalidade antes de publicar.")
     return str(archive), covers, rows, message
